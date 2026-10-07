@@ -3,6 +3,7 @@
 SmtpMini::SmtpMini(WiFiClientSecure& client) {
   _client = &client;
   _lastErrorCode = 0;
+  _fsDevice = nullptr;
 }
 
 bool SmtpMini::begin(const char* email, const char* appPassword, fs::FS* fileSystem) {
