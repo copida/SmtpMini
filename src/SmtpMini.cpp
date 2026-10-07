@@ -5,7 +5,7 @@ SmtpMini::SmtpMini(WiFiClientSecure& client) {
   _lastErrorCode = 0;
 }
 
-bool SmtpMini::begin(const char* email, const char* appPassword, fs::FS *fileSystem) {
+bool SmtpMini::begin(const char* email, const char* appPassword, fs::FS* fileSystem) {
   _email = email;
   _appPassword = appPassword;
   _fsDevice = fileSystem;
@@ -13,124 +13,133 @@ bool SmtpMini::begin(const char* email, const char* appPassword, fs::FS *fileSys
   return true;
 }
 
+void SmtpMini::setSmtpServer(const char* host, uint16_t port) {
+  _host = host;
+  _port = port;
+}
+
+// In sendEmail:
+// if (!_client->connect(_host, _port)) {
+
 int SmtpMini::getLastError() const {
   return _lastErrorCode;
 }
 
 // Legge e codifica dalla RAM
-void SmtpMini::codifica64(const char* buffer, size_t lunghezza) {
+void SmtpMini::codifica64(const uint8_t* data, size_t len, bool mime) {
+  char riga[80];
+  size_t c = 0;
 
-  bool formatoMIME = true;
-  size_t i = 0;
-  int charCount = 0;
-  char rigaBuffer[79];
+  for (size_t i = 0; i < len; i += 3) {
+    size_t rem = len - i;
+    uint8_t b1 = data[i];
+    uint8_t b2 = (rem > 1) ? data[i + 1] : 0;
+    uint8_t b3 = (rem > 2) ? data[i + 2] : 0;
+
+    riga[c++] = b64_table[b1 >> 2];
+    riga[c++] = b64_table[((b1 & 0x03) << 4) | (b2 >> 4)];
+    riga[c++] = (rem > 1) ? b64_table[((b2 & 0x0F) << 2) | (b3 >> 6)] : '=';
+    riga[c++] = (rem > 2) ? b64_table[b3 & 0x3F] : '=';
+
+    if (mime && c >= 76) {   // riga piena: la invio
+      riga[c++] = '\r';
+      riga[c++] = '\n';
+      _client->write((const uint8_t*)riga, c);
+      c = 0;
+    }
+  }
+
+  if (c > 0) {               // resto finale
+    riga[c++] = '\r';
+    riga[c++] = '\n';
+    _client->write((const uint8_t*)riga, c);
+  }
+}
+
+void SmtpMini::codifica64(const char* buffer, size_t lunghezza) {
 #ifdef SMTP_MINI_DEBUG
   Serial.print("Elaborazione e invio dati da RAM... ");
 #endif
+
   if (lunghezza == 0) {
-    formatoMIME = false;
     lunghezza = strlen(buffer);
+    codifica64((const uint8_t*)buffer, lunghezza, false);
+    return;
   }
 
-  while (i < lunghezza) {
-    size_t rimanenti = lunghezza - i;
-    uint8_t b1 = buffer[i++];
-    uint8_t b2 = (rimanenti > 1) ? buffer[i++] : 0;
-    uint8_t b3 = (rimanenti > 2) ? buffer[i++] : 0;
-
-    rigaBuffer[charCount++] = b64_table[b1 >> 2];
-    rigaBuffer[charCount++] = b64_table[((b1 & 0x03) << 4) | (b2 >> 4)];
-    rigaBuffer[charCount++] = (rimanenti > 1) ? b64_table[((b2 & 0x0F) << 2) | (b3 >> 6)] : '=';
-    rigaBuffer[charCount++] = (rimanenti > 2) ? b64_table[b3 & 0x3F] : '=';
-
-    if (formatoMIME && charCount >= 76) {
-      rigaBuffer[charCount++] = '\r';
-      rigaBuffer[charCount++] = '\n';
-      _client->write((const uint8_t*)rigaBuffer, charCount);
-      charCount = 0;
-    }
-  }
-  // Inviamo i caratteri rimanenti
-  if (charCount > 0) {
-    if (!formatoMIME) {
-      rigaBuffer[charCount++] = '\r';
-      rigaBuffer[charCount++] = '\n';
-    } else {
-      rigaBuffer[charCount++] = '\r';
-      rigaBuffer[charCount++] = '\n';
-    }
-    _client->write((const uint8_t*)rigaBuffer, charCount);
-  }
-
-  if (formatoMIME) {
-    _client->print("\r\n");
-  }
-  //Serial.println("Fatto!");
+  codifica64((const uint8_t*)buffer, lunghezza, true);
 }
 
-// Legge e codifica da SCHEDA SD (3 byte alla volta = consumo RAM zero)
-void SmtpMini::codificaFILE(char* percorso) {
+static const char* nomeBase(const char* percorso) {
+  const char* p = strrchr(percorso, '/');
+  return p ? p + 1 : percorso;
+}
 
-if (_fsDevice == nullptr) {
+void SmtpMini::codificaFILE(const char* percorso) {
+  if (_fsDevice == nullptr) {
 #ifdef SMTP_MINI_DEBUG
     Serial.println("Errore: Nessun File System specificato nel metodo begin().");
 #endif
     return;
   }
 
-#ifdef FS_DRV
+
   fs::File f = _fsDevice->open(percorso, FILE_READ);
   if (!f) {
-    Serial.printf("Errore: Impossibile aprire il file su SD:%s \n", percorso);
+#ifdef SMTP_MINI_DEBUG
+    Serial.printf("Errore: Impossibile aprire il file: %s\n", percorso);
+#endif
     return;
   }
 
-  uint8_t inputBuffer[3];
-  int charCount = 0;
-  char rigaBuffer[79];
+  const size_t totale = f.size();
+  if (totale == 0) {
+    f.close();
+    return;
+  }
 
-  size_t totaleByte = f.size();
+  uint8_t accumulo[57];
+  uint8_t lettura[16];
+  size_t accLen = 0;
   size_t byteLetti = 0;
   int ultimaPercentuale = -1;
 
-  while (f.available()) {
-    int bytesRead = f.read(inputBuffer, 3);
-    if (bytesRead > 0) {
-
-      byteLetti += bytesRead;
-
-      // Calcolo percentuale avanzamento
-      int percentuale = (byteLetti * 100) / totaleByte;
 #ifdef SMTP_MINI_DEBUG
-      if (percentuale % 5 == 0 && percentuale != ultimaPercentuale) {
-        Serial.print("#");
+  Serial.print("Elaborazione e invio file da SD... ");
+#endif
+
+  while (f.available()) {
+    size_t n = f.read(lettura, sizeof(lettura));
+    if (n == 0) break;
+
+    for (size_t i = 0; i < n; i++) {
+      accumulo[accLen++] = lettura[i];
+      byteLetti++;
+
+      if (accLen == sizeof(accumulo)) {
+        codifica64((const uint8_t*)accumulo, accLen, true);
+        accLen = 0;
+      }
+
+#ifdef SMTP_MINI_DEBUG
+      int percentuale = (int)((byteLetti * 100ULL) / totale);
+      if (percentuale != ultimaPercentuale && percentuale % 5 == 0) {
         ultimaPercentuale = percentuale;
+        Serial.print("#");
       }
 #endif
-      rigaBuffer[charCount++] = b64_table[inputBuffer[0] >> 2];
-      rigaBuffer[charCount++] = b64_table[((inputBuffer[0] & 0x03) << 4) | ((bytesRead > 1 ? inputBuffer[1] : 0) >> 4)];
-      rigaBuffer[charCount++] = (bytesRead > 1) ? b64_table[((inputBuffer[1] & 0x0F) << 2) | ((bytesRead > 2 ? inputBuffer[2] : 0) >> 6)] : '=';
-      rigaBuffer[charCount++] = (bytesRead > 2) ? b64_table[inputBuffer[2] & 0x3F] : '=';
-
-      if (charCount >= 76) {
-        rigaBuffer[charCount++] = '\r';
-        rigaBuffer[charCount++] = '\n';
-        _client->write((const uint8_t*)rigaBuffer, charCount);
-        charCount = 0;
-      }
     }
   }
-  if (charCount > 0) {
-    rigaBuffer[charCount++] = '\r';
-    rigaBuffer[charCount++] = '\n';
-    _client->write((const uint8_t*)rigaBuffer, charCount);
+
+  if (accLen > 0) {
+    codifica64((const uint8_t*)accumulo, accLen, true);
   }
 
   f.close();
   _client->print("\r\n");
+
 #ifdef SMTP_MINI_DEBUG
   Serial.println("] 100% - Completato!");
-#endif
 #endif
 }
 
@@ -168,6 +177,7 @@ bool SmtpMini::_waitForResponse(const char* expectedCode) {
   return success;
 }
 
+
 bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, bool isHtml, SMTPAttachment* attachments, size_t attachmentCount) {
   _lastErrorCode = 0;
 
@@ -175,7 +185,8 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
   Serial.println("\n--- Connessione a :smtp.gmail.com ---");
 #endif
 
-  if (!_client->connect("smtp.gmail.com", 465)) {
+  if (!_client->connect(_host, _port)) {
+  //if (!_client->connect("smtp.gmail.com", 465)) {
     _lastErrorCode = -2;  // -2 significa Errore di Connessione TCP/SSL
     return false;
   }
@@ -224,13 +235,8 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
     for (size_t i = 0; i < attachmentCount; i++) {
       SMTPAttachment corrente = attachments[i];
 
-      char nomedamostrare[20];
-      if (corrente.nomeFile[0] == '/') {
-        snprintf(nomedamostrare, 20, "%s", &corrente.nomeFile[1]);
-      } else {
-        snprintf(nomedamostrare, 20, "%s", corrente.nomeFile);
-      }
-     
+      const char* nomedamostrare = nomeBase(corrente.nomeFile);
+
       _client->printf("--%s\r\n", boundary);
 
       _client->printf("Content-Type: application/octet-stream; name=\"%s\"\r\n", nomedamostrare);
@@ -242,7 +248,7 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 #ifdef SMTP_MINI_DEBUG
         Serial.printf("Invio allegato da RAM:%s\n", corrente.nomeFile);
 #endif
-        codifica64(corrente.bufferRAM, corrente.lunghezzaRAM);
+        codifica64((const uint8_t*)corrente.bufferRAM, corrente.lunghezzaRAM, true);
       } else {
 #ifdef SMTP_MINI_DEBUG
         Serial.printf("Invio allegato da SD:%s\n", corrente.nomeFile);
