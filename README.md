@@ -143,19 +143,6 @@ In caso di fallimento della funzione `sendEmail()`, puoi risalire alla causa esa
 
 ---
 
-## ⚙️ Supporto File System Alternativi (LittleFS)
-
-Di base la libreria punta su `SD`. Se preferisci utilizzare la memoria Flash interna tramite **LittleFS**, ti basta aprire il file `SmtpMini.h` e invertire i commenti relativi al driver:
-
-```cpp
-//#include <SD.h>
-//#define FS_DRV SD
-#include <LittleFS.h>
-#define FS_DRV LittleFS
-```
-
----
-
 ## 📝 Licenza
 
 Questa libreria è rilasciata sotto licenza MIT. Sentiti libero di usarla, modificarla e integrarla nei tuoi progetti commerciali o open-source.
