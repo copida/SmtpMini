@@ -157,7 +157,8 @@ void testmail2() {
   delay(1000);
 
   //SMTPAttachment singoloAllegato[1] = { {"/report.csv"} };
-
+// esempio di allegati misti
+//prime 2 files e 3 buufer in RAM 
   SMTPAttachment listaAllegati[3] = {
     { "/file1.csv" },
     { "/test_sd.txt" },
