@@ -161,7 +161,7 @@ void testmail2() {
   SMTPAttachment listaAllegati[3] = {
     { "/file1.csv" },
     { "/test_sd.txt" },
-    { "BATTUTE.txt", battute, len_battute }  // buffer in memoria
+    { "BATTUTE.txt", (const uint8_t*)battute, len_battute }  // buffer in memoria
   };
 
   WiFiClientSecure ssl_client;
