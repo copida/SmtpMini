@@ -154,8 +154,9 @@ bool SmtpMini::_waitForResponse(const char* expectedCode) {
       if (millis() - timeout > 8000) {
         _lastErrorCode = -1;  // -1 significa TIMEOUT di rete
 #ifdef SMTP_MINI_DEBUG
-        Serial.println("<- [ERRORE LIBRERIA] Timeout risposta server.");
+        Serial.println("<- [ERRORE] Timeout risposta server.");
 #endif
+        _client->stop();
         return false;
       }
       delay(10);
@@ -171,7 +172,11 @@ bool SmtpMini::_waitForResponse(const char* expectedCode) {
       _lastErrorCode = response.substring(0, 3).toInt();
     }
 
-    if (response.startsWith(expectedCode)) success = true;
+    if (response.startsWith(expectedCode)){
+      success = true;
+    } else {
+      _client->stop();
+    }
   } while (response.length() > 3 && response.charAt(3) == '-');
 
   return success;
