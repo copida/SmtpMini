@@ -4,7 +4,7 @@
 	#include <Arduino.h>
 	// Decommenta questa riga se usi la porta 587
 	// Commentala se usi la porta 465 (Gmail o altri SSL implicito)
-	#define SMTP_USE_STARTTLS
+	//#define SMTP_USE_STARTTLS
 		
 	#ifndef SMTP_USE_STARTTLS
 		#include <WiFiClientSecure.h>
@@ -23,7 +23,7 @@
 	// --- DEBUG CONDIZIONALE ---
 	// Decommenta la riga sotto per vedere tutto il traffico SMTP sul monitor seriale.
 	// Commentala per ripulire la seriale e risparmiare memoria Flash nel progetto definitivo.
-	#define SMTP_MINI_DEBUG
+	//#define SMTP_MINI_DEBUG
 	
 		
 	// STRUTTURA ALLEGATI
