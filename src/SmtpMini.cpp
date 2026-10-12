@@ -247,9 +247,6 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 		_client->setClient(&basic_client, false);
 	#endif
 	
-	
-	
-	// Connessione TCP (se PlainStart è false, esegue anche l'handshake SSL in automatico)
 	if (!_client->connect(_host, _port)) {
 		_lastErrorCode = -2;  
 		Serial.println(F("NON CONNESSO!!!!!!"));
@@ -257,23 +254,20 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	}
 	Serial.println(F("CONNESSO"));
 	
-	// 2. Saluto del server
   if (readSMTPResponse() != 220)
 	return false;
 	
-  // 3. EHLO in chiaro
   if (!smtpCommand("EHLO esp32.local", 250))
 	return false;
 	
 	// fino qui tutto in chiaro ...dopo TLS
 	
-	
 	#ifdef SMTP_USE_STARTTLS
-	 // 4. Richiesta STARTTLS
+	 
   if (!smtpCommand("STARTTLS", 220))
     return false;
 
-  // 5. Upgrade TLS sullo stesso socket TCP
+  
 	#ifdef SMTP_MINI_DEBUG
   Serial.println(F("Avvio handshake STARTTLS..."));
 #endif
@@ -293,17 +287,14 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
     return false;
 #endif
 	
-	// =========================================================================
-	// DA QUI IN POI IL CODICE È IDENTICO PER ENTRAMBI I PROTOCOLLI
-	// =========================================================================
+// =========================================================================
+// DA QUI IN POI IL CODICE È IDENTICO PER ENTRAMBI I PROTOCOLLI
+// =========================================================================
 	
-	// Autenticazione (AUTH LOGIN)
-	 // 7. Autenticazione LOGIN
   if (!smtpCommand("AUTH LOGIN", 334)) return false;
 		
 	codifica64((const uint8_t*)_email, strlen(_email), false);
 	 if (readSMTPResponse() != 334)return false;
-	
 	
 	codifica64((const uint8_t*)_appPassword, strlen(_appPassword), false);
 	if (readSMTPResponse() != 235)return false;
