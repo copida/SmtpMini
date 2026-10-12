@@ -3,12 +3,22 @@
 #include <SD.h>
 #include <SmtpMini.h>
 
+// questo #define serve solo per selzionare in questo sketch la parte SSL o STARTTLS
+// fatto per evitare due esempi separati
+// ricordarsi di commentare o decommentare "#define SMTP_USE_STARTTLS" in SmtpMini.h
+// per il reale funzionamento in SSL o STARTTLS
+#define ENABLE_STARTTLS
+
 #define SD_CS_PIN 46  // per lolin s3
+//#define SD_CS_PIN 5  // esp32
 
-const char* ssid = "XXXXXXXXXXXXXXXXX";
-const char* password = "XXXXXXXXXXXXXXXXX";
+#define AUTHOR_EMAIL "mittenteg@gmail.com"
+#define AUTHOR_PASSWORD "passwordapp"
+#define RECIPIENT_EMAIL "destinatario.com"
 
-//SmtpMini mailer;
+const char* ssid = "XXXXXXXXXXXXXXXXXXX";
+const char* password = "XXXXXXXXXXXXXX";
+
 
 char battute[] PROGMEM = R"rawliteral(
   Se sei di buon umore, non ti preoccupare. Ti passerà.,
@@ -19,6 +29,12 @@ char battute[] PROGMEM = R"rawliteral(
   Sorridi... Domani sarà peggio.
 )rawliteral";
 size_t len_battute = sizeof(battute);
+
+#ifdef ENABLE_STARTTLS
+#define BODY_TXT "mail spedita su porta 587 in STARTTLS"
+#else
+#define BODY_TXT "mail spedita su porta 465 in SSL"
+#endif
 
 void handleSerialCommand(const String& line);
 void listDir();
@@ -119,20 +135,24 @@ void testmail1() {
   delay(1000);
   // blocco temporaneo
   {
-    WiFiClientSecure ssl_client;
-    ssl_client.setInsecure();
-    SmtpMini mailer(ssl_client);
 
-    mailer.begin("mittenteg@gmail.com", "passwordapp");
-    //mailer.begin("mittentegg@gmail.com", "passwordwrong");
+#ifdef ENABLE_STARTTLS
+    WiFiClient basic_client;
+    ESP_SSLClient smtp_client;
+    SmtpMini mailer(smtp_client);
+#else
+    WiFiClientSecure smtp_client;
+    smtp_client.setInsecure();
+    SmtpMini mailer(smtp_client);
+#endif
 
-    const char* datiAllegato = "Log generato dal sensore.";
-    size_t allegatoSize = strlen(datiAllegato);
-
+    mailer.begin(AUTHOR_EMAIL, AUTHOR_PASSWORD);
+    //mailer.begin(AUTHOR_EMAIL, "xxxxxxxxxxxxxxx");  // prova ERRORE
+    
     Serial.println("Invio email...");
-    bool esito = mailer.sendEmail("destinatario@gmail.com",
+    bool esito = mailer.sendEmail(RECIPIENT_EMAIL,
                                   "Test Leggero",
-                                  "Ciao!");
+                                  BODY_TXT);
 
     Serial.println("Spedita!");
 
@@ -143,9 +163,9 @@ void testmail1() {
       helpError(mailer.getLastError());
     }
 
-    ssl_client.flush(); 
-    ssl_client.stop();
-  }                      // end blocco temporaneo
+    smtp_client.flush();
+    smtp_client.stop();
+  }  // end blocco temporaneo
 
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
 }
@@ -156,38 +176,44 @@ void testmail2() {
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
   delay(1000);
 
+
   //SMTPAttachment singoloAllegato[1] = { {"/report.csv"} };
-// esempio di allegati misti
-//prime 2 files e 3 buufer in RAM 
+	// esempio di allegati misti
+	//prime 2 files e 3 buufer in RAM 
   SMTPAttachment listaAllegati[3] = {
     { "/file1.csv" },
     { "/test_sd.txt" },
-    { "BATTUTE.txt", (const uint8_t*)battute, len_battute }  // buffer in memoria
+    { "BATTUTE.txt", battute, len_battute }  // buffer in memoria
   };
 
-  WiFiClientSecure ssl_client;
-  ssl_client.setInsecure();
-  SmtpMini mailer(ssl_client);
 
-  mailer.begin("mittenteg@gmail.com", "passwordapp", &SD);
+#ifdef ENABLE_STARTTLS
+  WiFiClient basic_client;
+  ESP_SSLClient smtp_client;
+  SmtpMini mailer(smtp_client);
+#else
+  WiFiClientSecure smtp_client;
+  smtp_client.setInsecure();
+  SmtpMini mailer(smtp_client);
+#endif
+
+  mailer.begin(AUTHOR_EMAIL, AUTHOR_PASSWORD, &SD);
 
   Serial.println("Inizio invio email cumulativa...SD");
 
-  bool esito = mailer.sendEmail(
-    "destinatario@gmail.com",
-    "Report Dati da SD Card",
-    "Ecco il file contenuti su SD e memoria senza intasare la RAM.",
-    false,
-    listaAllegati,
-    3);
+  bool esito = mailer.sendEmail(RECIPIENT_EMAIL, "Report Dati da SD Card",
+                                BODY_TXT,
+                                false,
+                                listaAllegati,
+                                3);
 
   if (esito) {
     Serial.println("Email inviata con successo!");
   } else {
     helpError(mailer.getLastError());
   }
-  ssl_client.flush();
-  ssl_client.stop();
+  smtp_client.flush();
+  smtp_client.stop();
 
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
 }
