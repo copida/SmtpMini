@@ -1,10 +1,13 @@
 # SmtpMini
 
 Minimal secure SMTP client for **ESP32** with support for:
+
 - text or HTML email body
 - attachments from **RAM**
 - attachments from **filesystem** (`SD`, `LittleFS`, or any `fs::FS` compatible filesystem)
 - streaming Base64 encoding to keep memory usage low
+- **SMTPS (port 465)** as the default mode
+- **STARTTLS (port 587)** available when `SMTP_USE_STARTTLS` is enabled
 
 The goal of the library is to stay **small, simple, and practical** for Arduino projects that need to send emails without pulling in heavy dependencies.
 
@@ -12,12 +15,15 @@ The goal of the library is to stay **small, simple, and practical** for Arduino 
 
 ## Features
 
-- SMTP over `WiFiClientSecure`
+- SMTP over a secure client
 - Secure email sending with TLS/SSL
 - Plain text or HTML body
 - Multiple attachments
 - Attachments from RAM and/or filesystem in the same email
 - Streaming Base64 encoding
+- Support for:
+  - **implicit TLS / SMTPS** on port `465` as the default mode
+  - **STARTTLS** on port `587` when explicitly enabled
 - Simple API:
   - `begin()`
   - `setSmtpServer()`
@@ -31,13 +37,16 @@ The goal of the library is to stay **small, simple, and practical** for Arduino 
 
 - ESP32 board with Arduino core
 - Wi-Fi connection
-- SMTP server with **implicit TLS / SMTPS** on port `465`
+- SMTP server supporting either:
+  - **SMTPS** on port `465`
+  - **STARTTLS** on port `587`
 - For Gmail, an **app password** is required
 
 > **Important**
-> - The library currently supports **SMTPS on port 465**.
-> - `STARTTLS` on port `587` is **not supported**.
+> - `SMTPS` on port `465` is the default and recommended mode(using `WiFiClientSecure`).
+> - `STARTTLS` on port `587` is supported only when `SMTP_USE_STARTTLS` is enabled in `SmtpMini.h`.
 > - The destination email address is sent as a single `RCPT TO`.
+> - The library does not manage client shutdown automatically; close the connection in your sketch when needed.
 
 ---
 
@@ -49,41 +58,37 @@ Copy the library folder into your Arduino `libraries/` directory, or add it as a
 
 ## Quick start
 
+### Example with a filesystem attachment (default SMTPS / 465)
+
 ```cpp
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <SD.h>
 #include <SmtpMini.h>
-
-const char* ssid = "YOUR_WIFI";
-const char* password = "YOUR_WIFI_PASSWORD";
+#include <SD.h>
 
 WiFiClientSecure secureClient;
 SmtpMini mailer(secureClient);
 
-const char ramText[] = "Sensor,Value\nVolt,5.12\nAmpere,0.85\n";
-
 void setup() {
   Serial.begin(115200);
 
-  WiFi.begin(ssid, password);
+  WiFi.begin("YOUR_WIFI", "YOUR_WIFI_PASSWORD");
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
     Serial.print(".");
   }
   Serial.println("\nWi-Fi connected");
 
-  secureClient.setInsecure();   // see security note below
+  secureClient.setInsecure();
 
   if (!SD.begin()) {
     Serial.println("SD init failed");
   }
 
   mailer.begin("sender@gmail.com", "your_app_password", &SD);
+  mailer.setSmtpServer("smtp.gmail.com", 465);
 
-  SMTPAttachment attachments[2] = {
-    { "/report.csv" },                                         // from SD
-    { "log.txt", (const uint8_t*)ramText, strlen(ramText) }    // from RAM
+  SMTPAttachment attachments[1] = {
+    { "/report.csv" }
   };
 
   bool ok = mailer.sendEmail(
@@ -92,7 +97,7 @@ void setup() {
     "Hello! This is a test email.",
     false,
     attachments,
-    2
+    1
   );
 
   if (ok) {
@@ -100,6 +105,43 @@ void setup() {
   } else {
     Serial.printf("SMTP error: %d\n", mailer.getLastError());
   }
+}
+
+void loop() {}
+```
+
+### Example with STARTTLS on port 587
+
+> This example is only valid if `SMTP_USE_STARTTLS` is enabled in `SmtpMini.h`.
+
+```cpp
+#include <WiFi.h>
+#include <SmtpMini.h>
+
+WiFiClient tcpClient;
+ESP_SSLClient sslClient(tcpClient);
+SmtpMini mailer(sslClient);
+
+void setup() {
+  Serial.begin(115200);
+
+  WiFi.begin("YOUR_WIFI", "YOUR_WIFI_PASSWORD");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+  }
+
+  mailer.begin("sender@gmail.com", "your_app_password");
+  mailer.setSmtpServer("smtp.gmail.com", 587);
+
+  bool ok = mailer.sendEmail(
+    "recipient@example.com",
+    "STARTTLS test",
+    "Hello from STARTTLS!",
+    false
+  );
+
+  if (ok) Serial.println("Email sent successfully");
+  else    Serial.printf("SMTP error: %d\n", mailer.getLastError());
 }
 
 void loop() {}
@@ -139,12 +181,12 @@ If `fileSystem` is omitted, only RAM attachments can be sent.
 void setSmtpServer(const char* host, uint16_t port = 465);
 ```
 
-Allows using an SMTP server other than the default one.
+Allows using a different SMTP server and port.
 
 Example:
 
 ```cpp
-mailer.setSmtpServer("smtp.example.com", 465);
+mailer.setSmtpServer("smtp.example.com", 587);
 ```
 
 > The string is not copied internally, so use a string literal or a value that stays valid for the whole program.
@@ -192,7 +234,7 @@ Returns the last SMTP/network error code detected by the library.
 ```cpp
 struct SMTPAttachment {
   char nomeFile[64] = { "\0" };
-  const uint8_t* bufferRAM = nullptr;
+  const void* bufferRAM = nullptr;
   size_t lunghezzaRAM = 0;
 };
 ```
@@ -207,7 +249,7 @@ SMTPAttachment a1 = { "/folder/data.csv" };
 
 ```cpp
 const char text[] = "Generated in RAM";
-SMTPAttachment a2 = { "log.txt", (const uint8_t*)text, strlen(text) };
+SMTPAttachment a2 = { "log.txt", (const void*)text, strlen(text) };
 ```
 
 Behavior:
@@ -225,6 +267,10 @@ Behavior:
 | :--- | :--- |
 | `-1` | Timeout waiting for server response |
 | `-2` | TCP/TLS connection failed |
+| `220` | SMTP greeting / connection response |
+| `235` | Authentication succeeded |
+| `334` | Authentication challenge / continuation |
+| `354` | Start mail input |
 | `535` | Authentication failed |
 | `550` | Invalid recipient |
 | other | SMTP reply code from the server |
@@ -251,7 +297,7 @@ For production builds, comment it out.
 
 `secureClient.setInsecure()` disables certificate validation. The connection is still encrypted, but the server identity is not verified.
 
-For stronger security, set the CA certificate with `secureClient.setCACert(...)`.
+For stronger security, set the CA certificate with `secureClient.setCACert(...)` when possible.
 
 ---
 
@@ -262,6 +308,7 @@ See `examples/testsmail/testsmail.ino` for a complete example using:
 - SD card
 - simple mail
 - mixed attachments from SD and RAM
+- secure SMTP connection
 
 ---
 
