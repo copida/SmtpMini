@@ -187,22 +187,26 @@ bool SmtpMini::readSMTPLine(char* line, size_t size,uint32_t timeoutMs) {
 // Legge la risposta SMTP, anche multilinea.
 int SmtpMini::readSMTPResponse() {
   char line[512];
+	_lastErrorCode = -1;
 	
   while (true) {
     if (!readSMTPLine(line, sizeof(line)))
-		return -1;
+		break;
 		
     if (strlen(line) < 4)
-		return -1;
+		break;
 		
     if (line[3] == ' ') {
       line[3] = '\0';
-      return atoi(line);
+			_lastErrorCode = atoi(line);
+      break;
 		}
 		
     if (line[3] != '-')
-		return -1;
+		break;
 	}
+	
+	return _lastErrorCode;
 }
 
 bool SmtpMini::smtpCommand(const char* command, int expected) {
@@ -216,7 +220,7 @@ bool SmtpMini::smtpCommand(const char* command, int expected) {
   int code = readSMTPResponse();
 	
   if (code != expected) {
-		_lastErrorCode = code;
+		//_lastErrorCode = code;
     Serial.printf("ERRORE SMTP: atteso %d, ricevuto %d\n", expected, code);
     return false;
 	}
@@ -372,7 +376,6 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	if (readSMTPResponse() != 250) return false;
 	
 	smtpCommand("QUIT", 221);
-	
-	_client->stop();
+	_lastErrorCode = 0;   // invio riuscito
 	return true;
 }
