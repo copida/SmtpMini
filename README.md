@@ -1,35 +1,38 @@
 # SmtpMini
 
-Minimal secure SMTP client for **ESP32** with support for:
+Minimal SMTP client for **ESP32** (Arduino core) with support for:
 
-- text or HTML email body
+- plain text or HTML email bodies
 - attachments from **RAM**
 - attachments from **filesystem** (`SD`, `LittleFS`, or any `fs::FS` compatible filesystem)
 - streaming Base64 encoding to keep memory usage low
 - **SMTPS (port 465)** as the default mode
-- **STARTTLS (port 587)** available when `SMTP_USE_STARTTLS` is enabled
+- **STARTTLS (port 587)** as an optional mode using `ESP_SSLClient`
+- optional `Date:` header for better compatibility with SMTP servers expecting complete email headers
 
-The goal of the library is to stay **small, simple, and practical** for Arduino projects that need to send emails without pulling in heavy dependencies.
+The goal of the library is to stay **small, simple, and practical** for Arduino projects that need to send emails without bringing in heavy dependencies.
 
 ---
 
 ## Features
 
 - SMTP over a secure client
-- Secure email sending with TLS/SSL
-- Plain text or HTML body
-- Multiple attachments
-- Attachments from RAM and/or filesystem in the same email
-- Streaming Base64 encoding
-- Support for:
+- secure email sending with TLS/SSL
+- plain text or HTML body
+- multiple attachments
+- attachments from RAM and/or filesystem in the same email
+- streaming Base64 encoding
+- support for:
   - **implicit TLS / SMTPS** on port `465` as the default mode
-  - **STARTTLS** on port `587` when explicitly enabled
-- Simple API:
+  - **STARTTLS** on port `587` when enabled
+- optional `Date:` header for better compatibility with stricter SMTP servers
+- simple API:
   - `begin()`
   - `setSmtpServer()`
+  - `setSMTPtime()`
   - `sendEmail()`
   - `getLastError()`
-- Optional debug logging via `SMTP_MINI_DEBUG`
+- optional debug logging via `SMTP_MINI_DEBUG`
 
 ---
 
@@ -43,10 +46,12 @@ The goal of the library is to stay **small, simple, and practical** for Arduino 
 - For Gmail, an **app password** is required
 
 > **Important**
-> - `SMTPS` on port `465` is the default and recommended mode(using `WiFiClientSecure`).
-> - `STARTTLS` on port `587` is supported only when `SMTP_USE_STARTTLS` is enabled in `SmtpMini.h`.
+> - Default mode is SMTPS on port `465` using `WiFiClientSecure`.
+> - STARTTLS on port `587` is available only when `SMTP_USE_STARTTLS` is enabled, using `ESP_SSLClient`.
+> - The library can optionally include the `Date:` header to improve compatibility with stricter SMTP servers.
 > - The destination email address is sent as a single `RCPT TO`.
-> - The library does not manage client shutdown automatically; close the connection in your sketch when needed.
+> - The library does **not** close the client automatically; the sketch decides when to stop the connection.
+> - `QUIT` is sent as a best-effort SMTP close command, but a successful message is already considered delivered once the server accepts it after `DATA`.
 
 ---
 
@@ -58,15 +63,12 @@ Copy the library folder into your Arduino `libraries/` directory, or add it as a
 
 ## Quick start
 
-### Example with a filesystem attachment (default SMTPS / 465)
+### Default mode: SMTPS on port 465
 
 ```cpp
 #include <WiFi.h>
 #include <SmtpMini.h>
 #include <SD.h>
-
-WiFiClientSecure secureClient;
-SmtpMini mailer(secureClient);
 
 void setup() {
   Serial.begin(115200);
@@ -78,11 +80,13 @@ void setup() {
   }
   Serial.println("\nWi-Fi connected");
 
-  secureClient.setInsecure();
-
   if (!SD.begin()) {
     Serial.println("SD init failed");
   }
+
+  WiFiClientSecure smtp_client;
+  smtp_client.setInsecure();
+  SmtpMini mailer(smtp_client);
 
   mailer.begin("sender@gmail.com", "your_app_password", &SD);
   mailer.setSmtpServer("smtp.gmail.com", 465);
@@ -100,6 +104,9 @@ void setup() {
     1
   );
 
+  smtp_client.flush();
+  smtp_client.stop();
+
   if (ok) {
     Serial.println("Email sent successfully");
   } else {
@@ -110,17 +117,13 @@ void setup() {
 void loop() {}
 ```
 
-### Example with STARTTLS on port 587
+### STARTTLS on port 587
 
 > This example is only valid if `SMTP_USE_STARTTLS` is enabled in `SmtpMini.h`.
 
 ```cpp
 #include <WiFi.h>
 #include <SmtpMini.h>
-
-WiFiClient tcpClient;
-ESP_SSLClient sslClient(tcpClient);
-SmtpMini mailer(sslClient);
 
 void setup() {
   Serial.begin(115200);
@@ -129,6 +132,10 @@ void setup() {
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
   }
+
+ WiFiClient basic_client;
+ ESP_SSLClient smtp_client;
+ SmtpMini mailer(smtp_client);
 
   mailer.begin("sender@gmail.com", "your_app_password");
   mailer.setSmtpServer("smtp.gmail.com", 587);
@@ -139,6 +146,9 @@ void setup() {
     "Hello from STARTTLS!",
     false
   );
+
+  smtp_client.flush();
+  smtp_client.stop();
 
   if (ok) Serial.println("Email sent successfully");
   else    Serial.printf("SMTP error: %d\n", mailer.getLastError());
@@ -157,23 +167,15 @@ void loop() {}
 bool begin(const char* email, const char* appPassword, fs::FS* fileSystem = nullptr);
 ```
 
-Initializes the sender credentials and optionally the filesystem used for file-based attachments.
-
-- `email`: sender email address
-- `appPassword`: SMTP/app password
-- `fileSystem`: optional filesystem pointer
-
-Examples:
+Sets sender credentials and, optionally, the filesystem used for file attachments.
 
 ```cpp
 mailer.begin(mail, pass, &SD);
 mailer.begin(mail, pass, &LittleFS);
-mailer.begin(mail, pass);
+mailer.begin(mail, pass);          // RAM attachments only
 ```
 
-If `fileSystem` is omitted, only RAM attachments can be sent.
-
----
+> The strings are **not copied**: they must stay valid for the whole program.
 
 ### `setSmtpServer()`
 
@@ -181,43 +183,50 @@ If `fileSystem` is omitted, only RAM attachments can be sent.
 void setSmtpServer(const char* host, uint16_t port = 465);
 ```
 
-Allows using a different SMTP server and port.
+Overrides the default host and port. The host string is **not copied** (use a literal or a global).
+
+### `setSMTPtime()`
+
+```cpp
+void setSMTPtime(const char* timestr);
+```
+
+Sets the optional `Date:` header value used by the message builder.
 
 Example:
 
 ```cpp
-mailer.setSmtpServer("smtp.example.com", 587);
+configTime(3600, 3600, "pool.ntp.org");
+
+struct tm t;
+if (getLocalTime(&t)) {
+  static char dateBuf[40];
+  strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S %z", &t);
+  mailer.setSMTPtime(dateBuf);
+}
 ```
 
-> The string is not copied internally, so use a string literal or a value that stays valid for the whole program.
-
----
+If `setSMTPtime()` is never called, no `Date:` header is sent.
 
 ### `sendEmail()`
 
 ```cpp
-bool sendEmail(
-  const char* to,
-  const char* subject,
-  const char* body,
-  bool isHtml = false,
-  SMTPAttachment* attachments = nullptr,
-  size_t attachmentCount = 0
-);
+bool sendEmail(const char* to, const char* subject, const char* body,
+               bool isHtml = false,
+               SMTPAttachment* attachments = nullptr,
+               size_t attachmentCount = 0);
 ```
 
-Sends the email message.
+| Parameter | Description |
+| :--- | :--- |
+| `to` | Recipient (a single `RCPT TO`) |
+| `subject` | Subject |
+| `body` | Message body |
+| `isHtml` | `true` = `text/html`, `false` = `text/plain` (UTF-8) |
+| `attachments` | Array of `SMTPAttachment` (or `nullptr`) |
+| `attachmentCount` | Number of elements in the array |
 
-Parameters:
-
-- `to`: destination email address
-- `subject`: email subject
-- `body`: message body
-- `isHtml`: set `true` for HTML body
-- `attachments`: array of attachments
-- `attachmentCount`: number of attachments in the array
-
----
+Returns `true` if the server accepted the message (`250` after `DATA`).
 
 ### `getLastError()`
 
@@ -225,90 +234,117 @@ Parameters:
 int getLastError() const;
 ```
 
-Returns the last SMTP/network error code detected by the library.
+Returns the last error code. On success, it returns `0`.
 
 ---
 
-## Attachment structure
+## Attachments
 
 ```cpp
 struct SMTPAttachment {
-  char nomeFile[64] = { "\0" };
-  const void* bufferRAM = nullptr;
-  size_t lunghezzaRAM = 0;
+  char nomeFile[64] = { "\0" };       // name (RAM) or path (filesystem)
+  const void* bufferRAM = nullptr;    // leave nullptr for filesystem files
+  size_t lunghezzaRAM = 0;            // leave 0 for filesystem files
 };
 ```
 
-### File attachment
+### From the filesystem
 
 ```cpp
-SMTPAttachment a1 = { "/folder/data.csv" };
+SMTPAttachment a;
+strcpy(a.nomeFile, "/logs/data.csv");     // requires a filesystem in begin()
 ```
 
-### RAM attachment
+### From RAM
 
 ```cpp
 const char text[] = "Generated in RAM";
-SMTPAttachment a2 = { "log.txt", (const void*)text, strlen(text) };
+
+SMTPAttachment b;
+strcpy(b.nomeFile, "log.txt");            // name shown in the email
+b.bufferRAM    = text;
+b.lunghezzaRAM = strlen(text);
 ```
 
-Behavior:
+### Rules
 
-- If `bufferRAM != nullptr` and `lunghezzaRAM > 0`, the attachment is sent from RAM.
-- Otherwise the library tries to open the file from the configured filesystem.
-- If the filename starts with `/`, the leading slash is removed from the display name.
-- Only the last path component is used as the name shown in the email.
+- If `bufferRAM != nullptr` **and** `lunghezzaRAM > 0` → sent from RAM.
+- Otherwise, if `nomeFile` is not empty → read from the filesystem passed to `begin()`.
+- The name shown in the email is the last path component (`/logs/data.csv` → `data.csv`).
+- `nomeFile` holds at most 63 characters.
+- If the file cannot be opened or is empty, it is skipped.
+- All attachments are sent as `application/octet-stream`.
+- RAM and filesystem attachments can be mixed in the same email.
 
 ---
 
 ## Error codes
 
+`getLastError()` returns:
+
 | Code | Meaning |
 | :--- | :--- |
-| `-1` | Timeout waiting for server response |
-| `-2` | TCP/TLS connection failed |
-| `220` | SMTP greeting / connection response |
+| `0` | No error recorded / successful send |
+| `-1` | Timeout or connection closed while waiting for a server reply |
+| `-2` | TCP/TLS connection to the server failed |
+| *other* | SMTP code received instead of the expected one (for example `535`, `554`) |
+
+Common SMTP codes:
+
+| Code | Meaning |
+| :--- | :--- |
+| `220` | Service ready / ready to start TLS |
+| `221` | Service closing transmission channel |
 | `235` | Authentication succeeded |
-| `334` | Authentication challenge / continuation |
+| `250` | Command accepted |
+| `334` | Authentication challenge |
 | `354` | Start mail input |
 | `535` | Authentication failed |
-| `550` | Invalid recipient |
-| other | SMTP reply code from the server |
+| `550` | Mailbox unavailable / invalid recipient |
 
-If a filesystem attachment cannot be opened, the library logs the issue in debug mode and continues with the remaining email flow.
+> **Note:** the code is stored whenever the reply does not match the expected one, including server greeting, authentication, `MAIL FROM`, `RCPT TO`, `DATA`, `STARTTLS`, and the final message acceptance after `DATA`. Enable `SMTP_MINI_DEBUG` to inspect the server dialogue.
+
+---
+
+## Client lifecycle
+
+- The library does not close the client automatically.
+- The sketch owns the client and decides when to stop it.
+- `QUIT` is sent as a best-effort SMTP close command.
+- A message is considered successfully sent once the server accepts it after `DATA` with `250`.
 
 ---
 
 ## Debug
 
-Enable debug output in `SmtpMini.h`:
+Uncomment in `SmtpMini.h`:
 
 ```cpp
 #define SMTP_MINI_DEBUG
 ```
 
-When enabled, the library prints SMTP dialogue and attachment progress to the serial monitor.
-
-For production builds, comment it out.
+When enabled, the library prints the SMTP dialogue (`C:` / `S:` lines), the authentication result and the attachment progress. Connection and SMTP error messages are printed on `Serial` regardless of this option.
 
 ---
 
 ## Security note
 
-`secureClient.setInsecure()` disables certificate validation. The connection is still encrypted, but the server identity is not verified.
-
-For stronger security, set the CA certificate with `secureClient.setCACert(...)` when possible.
+The library calls `setInsecure()` on the client inside `sendEmail()`: the connection is **encrypted**, but the **server certificate is not verified**.
 
 ---
 
-## Example sketch
+## Limitations
 
-See `examples/testsmail/testsmail.ino` for a complete example using:
-- Wi-Fi connection
-- SD card
-- simple mail
-- mixed attachments from SD and RAM
-- secure SMTP connection
+- Authentication: `AUTH LOGIN` only
+- One recipient per message
+- Single body part (text **or** HTML)
+- ESP32 only
+
+---
+
+## Example
+
+See [`examples/testsmail.ino`](examples/testsmail.ino): Wi-Fi, SD card, simple email and mixed SD/RAM attachments.
 
 ---
 
