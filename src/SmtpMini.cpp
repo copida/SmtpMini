@@ -247,6 +247,8 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 		_client->setClient(&basic_client, false);
 	#endif
 	
+	
+	// Connessione TCP (se PlainStart è false, esegue anche l'handshake SSL in automatico)
 	if (!_client->connect(_host, _port)) {
 		_lastErrorCode = -2;  
 		Serial.println(F("NON CONNESSO!!!!!!"));
@@ -254,20 +256,23 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	}
 	Serial.println(F("CONNESSO"));
 	
+	// 2. Saluto del server
   if (readSMTPResponse() != 220)
 	return false;
 	
+  // 3. EHLO in chiaro
   if (!smtpCommand("EHLO esp32.local", 250))
 	return false;
 	
 	// fino qui tutto in chiaro ...dopo TLS
 	
+	
 	#ifdef SMTP_USE_STARTTLS
-	 
+	 // 4. Richiesta STARTTLS
   if (!smtpCommand("STARTTLS", 220))
     return false;
 
-  
+  // 5. Upgrade TLS sullo stesso socket TCP
 	#ifdef SMTP_MINI_DEBUG
   Serial.println(F("Avvio handshake STARTTLS..."));
 #endif
@@ -287,10 +292,12 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
     return false;
 #endif
 	
-// =========================================================================
-// DA QUI IN POI IL CODICE È IDENTICO PER ENTRAMBI I PROTOCOLLI
-// =========================================================================
+	// =========================================================================
+	// DA QUI IN POI IL CODICE È IDENTICO PER ENTRAMBI I PROTOCOLLI
+	// =========================================================================
 	
+	// Autenticazione (AUTH LOGIN)
+	 // 7. Autenticazione LOGIN
   if (!smtpCommand("AUTH LOGIN", 334)) return false;
 		
 	codifica64((const uint8_t*)_email, strlen(_email), false);
@@ -316,6 +323,11 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	_client->printf("From: <%s>\r\n", _email);
 	_client->printf("To: <%s>\r\n", to);
 	_client->printf("Subject: %s\r\n", subject);
+	#ifdef ENABLE_TIMEINFO
+	if(_timeSMTP != nullptr){_client->printf("Date: %s\r\n", _timeSMTP); }
+		//Wed, 14 Oct 2026 08:14:13 +0200
+		//strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S %z", &timeinfo);
+	#endif
 	_client->print("MIME-Version: 1.0\r\n");
 	_client->printf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary);
 	
