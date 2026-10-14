@@ -2,9 +2,10 @@
 #define SMTP_MINI_H
 
 	#include <Arduino.h>
+	#define ENABLE_TIMEINFO
 	// Decommenta questa riga se usi la porta 587
 	// Commentala se usi la porta 465 (Gmail o altri SSL implicito)
-	//#define SMTP_USE_STARTTLS
+	#define SMTP_USE_STARTTLS
 		
 	#ifndef SMTP_USE_STARTTLS
 		#include <WiFiClientSecure.h>
@@ -23,7 +24,7 @@
 	// --- DEBUG CONDIZIONALE ---
 	// Decommenta la riga sotto per vedere tutto il traffico SMTP sul monitor seriale.
 	// Commentala per ripulire la seriale e risparmiare memoria Flash nel progetto definitivo.
-	//#define SMTP_MINI_DEBUG
+	#define SMTP_MINI_DEBUG
 	
 		
 	// STRUTTURA ALLEGATI
@@ -50,6 +51,9 @@
 		bool sendEmail(const char* to, const char* subject, const char* body, bool isHtml = false, SMTPAttachment* attachments = nullptr, size_t attachmentCount = 0);
 		
 		int getLastError() const;
+		#ifdef ENABLE_TIMEINFO
+		void setSMTPtime(const char* timestr) { _timeSMTP = timestr; }
+		#endif
 		
 		private:
 		
@@ -57,6 +61,9 @@
 		uint16_t _port = SMTP_PORT;
 		const char* _email;
 		const char* _appPassword;
+		#ifdef ENABLE_TIMEINFO
+		const char* _timeSMTP;
+		#endif
 		
 		#ifdef SMTP_USE_STARTTLS
 			// TCP sottostante e wrapper TLS
@@ -69,7 +76,6 @@
 		fs::FS* _fsDevice;   // Puntatore generico al File System scelto dall'utente
 		int _lastErrorCode;  
 		
-		//bool _waitForResponse(const char* expectedCode);
 		int readSMTPResponse();
 		bool readSMTPLine(char* line, size_t size,uint32_t timeoutMs = 10000);
 		bool smtpCommand(const char* command, int expected);
