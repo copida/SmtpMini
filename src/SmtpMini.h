@@ -59,10 +59,10 @@
 		
 		const char* _host = SMTP_SERVER;
 		uint16_t _port = SMTP_PORT;
-		const char* _email;
-		const char* _appPassword;
+		const char* _email = nullptr;
+		const char* _appPassword = nullptr;
 		#ifdef ENABLE_TIMEINFO
-		const char* _timeSMTP;
+		const char* _timeSMTP = nullptr;
 		#endif
 		
 		#ifdef SMTP_USE_STARTTLS
