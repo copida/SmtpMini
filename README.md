@@ -33,6 +33,7 @@ The goal of the library is to stay **small, simple, and practical** for Arduino 
   - `sendEmail()`
   - `getLastError()`
 - optional debug logging via `SMTP_MINI_DEBUG`
+- optional multi-recipient email via `MULTIRCPT` : "recipient1@gmail.com;recipient2@outlook.com"
 
 ---
 
@@ -336,7 +337,6 @@ The library calls `setInsecure()` on the client inside `sendEmail()`: the connec
 ## Limitations
 
 - Authentication: `AUTH LOGIN` only
-- One recipient per message
 - Single body part (text **or** HTML)
 - ESP32 only
 
