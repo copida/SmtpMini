@@ -158,6 +158,21 @@ void setup() {
 void loop() {}
 ```
 
+
+### MULTI RECIPIENT
+
+> This example is only valid if `MULTIRCPT` is enabled in `SmtpMini.h`.
+
+```cpp
+
+  bool ok = mailer.sendEmail(
+    "recipien1t1@example.com;recipien12t@gmail.com;recipien1t3@outlook.it",
+    "multi resipient test",
+    "Hello from SmtpMini!",
+    false
+  );
+
+```
 ---
 
 ## API
