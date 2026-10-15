@@ -26,6 +26,9 @@
 	#endif
 	
 	#include <FS.h>
+
+ //#define MULTIRCPT
+// es: "recipipient1@gmail.com;recipient2@....." ;
 		
 	// STRUTTURA ALLEGATI
 	struct SMTPAttachment {
