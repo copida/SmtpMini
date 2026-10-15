@@ -317,38 +317,36 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	_client->printf("MAIL FROM:<%s>\r\n", _email);
 	if (readSMTPResponse() != 250)return false;
 		
-	//#define MULTIRCPT
 	
-	#ifdef MULTIRCPT
-
-  char emailBuffer[64]; // Buffer temporaneo
-	size_t indlistaEmail = 0;
-	int pemailbuffer = 0;
+#ifdef MULTIRCPT
+char emailBuffer[64]; // Buffer temporaneo
+size_t indlistaEmail = 0;
+int pemailbuffer = 0;
 	
-	while (true) {
-		char carattereCorrente = to[indlistaEmail];
-		if(carattereCorrente == ' '){
-			indlistaEmail++;
-			continue;
-		}	
-		if(pemailbuffer < 64 -1) {
-			if(carattereCorrente == '\0' || carattereCorrente == ';' ) {
-				emailBuffer[pemailbuffer] = '\0';
-				if(pemailbuffer > 10)_client->printf("RCPT TO:<%s>\r\n", emailBuffer);
-				if (readSMTPResponse() != 250)return false;
-        //if(pemailbuffer > 10)Serial.println(emailBuffer);
-			} else {
-				emailBuffer[pemailbuffer++] = carattereCorrente;
-			}
-		} 
-		if(carattereCorrente == '\0') break;
-		if(carattereCorrente == ';') pemailbuffer = 0;
+while (true) {
+	char carattereCorrente = to[indlistaEmail];
+	if(carattereCorrente == ' '){
 		indlistaEmail++;
-	}
-	#else
+		continue;
+	}	
+	if(pemailbuffer < 64 -1) {
+		if(carattereCorrente == '\0' || carattereCorrente == ';' ) {
+			emailBuffer[pemailbuffer] = '\0';
+			if(pemailbuffer > 10)_client->printf("RCPT TO:<%s>\r\n", emailBuffer);
+			if (readSMTPResponse() != 250)return false;
+        //if(pemailbuffer > 10)Serial.println(emailBuffer);
+		} else {
+			emailBuffer[pemailbuffer++] = carattereCorrente;
+		}
+	} 
+	if(carattereCorrente == '\0') break;
+	if(carattereCorrente == ';') pemailbuffer = 0;
+	indlistaEmail++;
+}
+#else
 	_client->printf("RCPT TO:<%s>\r\n", to);
 	if (readSMTPResponse() != 250)return false;
-	#endif
+#endif
 	
 	if (!smtpCommand("DATA", 354)) return false;
 	
