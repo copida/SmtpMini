@@ -8,6 +8,7 @@ Minimal SMTP client for **ESP32** (Arduino core) with support for:
 - streaming Base64 encoding to keep memory usage low
 - **SMTPS (port 465)** as the default mode
 - **STARTTLS (port 587)** as an optional mode using `ESP_SSLClient`
+- optional server-certificate verification using a CA certificate
 - optional `Date:` header for better compatibility with SMTP servers expecting complete email headers
 
 The goal of the library is to stay **small, simple, and practical** for Arduino projects that need to send emails without bringing in heavy dependencies.
@@ -18,6 +19,7 @@ The goal of the library is to stay **small, simple, and practical** for Arduino 
 
 - SMTP over a secure client
 - secure email sending with TLS/SSL
+- optional server-certificate verification with a CA certificate
 - plain text or HTML body
 - multiple attachments
 - attachments from RAM and/or filesystem in the same email
@@ -49,8 +51,9 @@ The goal of the library is to stay **small, simple, and practical** for Arduino 
 > **Important**
 > - Default mode is SMTPS on port `465` using `WiFiClientSecure`.
 > - STARTTLS on port `587` is available only when `SMTP_USE_STARTTLS` is enabled, using `ESP_SSLClient`.
+> - Pass a CA certificate to `setSmtpServer()` to verify the SMTP server certificate; without one, the connection is encrypted but the server certificate is not verified.
 > - The library can optionally include the `Date:` header to improve compatibility with stricter SMTP servers.
-> - The destination email address is sent as a single `RCPT TO`.
+> - The destination email address is sent as a single `RCPT TO` unless `MULTIRCPT` is enabled.
 > - The library does **not** close the client automatically; the sketch decides when to stop the connection.
 > - `QUIT` is sent as a best-effort SMTP close command, but a successful message is already considered delivered once the server accepts it after `DATA`.
 
@@ -86,7 +89,6 @@ void setup() {
   }
 
   WiFiClientSecure smtp_client;
-  smtp_client.setInsecure();
   SmtpMini mailer(smtp_client);
 
   mailer.begin("sender@gmail.com", "your_app_password", &SD);
@@ -158,6 +160,24 @@ void setup() {
 void loop() {}
 ```
 
+### Verify the SMTP server certificate
+
+By default, the connection is encrypted but the server certificate is not verified. To verify the server, provide its trusted CA certificate in PEM format as the third argument to `setSmtpServer()`. This works with SMTPS and with STARTTLS when `SMTP_USE_STARTTLS` is enabled.
+
+```cpp
+// Replace this placeholder with the complete CA certificate (PEM) that
+// validates the certificate presented by your SMTP server.
+static const char smtpRootCA[] = R"CERT(
+-----BEGIN CERTIFICATE-----
+... paste the CA certificate here ...
+-----END CERTIFICATE-----
+)CERT";
+
+mailer.setSmtpServer("smtp.gmail.com", 465, smtpRootCA);
+```
+
+Keep the certificate string available for the lifetime of the mailer; `setSmtpServer()` stores its pointer rather than copying the certificate. If the third argument is omitted or `nullptr`, the library uses `setInsecure()`, so TLS encryption remains enabled but the server identity is not verified. Use the CA certificate for your SMTP server, not a client certificate.
+
 
 ### MULTI RECIPIENT
 
@@ -196,10 +216,10 @@ mailer.begin(mail, pass);          // RAM attachments only
 ### `setSmtpServer()`
 
 ```cpp
-void setSmtpServer(const char* host, uint16_t port = 465);
+void setSmtpServer(const char* host, uint16_t port, const char* certCA = nullptr);
 ```
 
-Overrides the default host and port. The host string is **not copied** (use a literal or a global).
+Overrides the SMTP host and port. Pass the server's trusted CA certificate in PEM format as `certCA` to verify its certificate. The host and certificate strings are **not copied**; they must remain valid while the mailer uses them. If `certCA` is omitted or `nullptr`, certificate verification is disabled.
 
 ### `setSMTPtime()`
 
@@ -345,7 +365,7 @@ When enabled, the library prints the SMTP dialogue (`C:` / `S:` lines), the auth
 
 ## Security note
 
-The library calls `setInsecure()` on the client inside `sendEmail()`: the connection is **encrypted**, but the **server certificate is not verified**.
+TLS encrypts the connection. The library verifies the SMTP server certificate only when a CA certificate is supplied to `setSmtpServer()`; otherwise, it calls `setInsecure()`, so the server's identity is not verified. Certificate verification is available in both SMTPS and STARTTLS modes.
 
 ---
 
