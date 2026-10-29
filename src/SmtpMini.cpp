@@ -1,16 +1,21 @@
 #include "SmtpMini.h"
 
+static constexpr char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+
 #ifdef SMTP_USE_STARTTLS
 	SmtpMini::SmtpMini(ESP_SSLClient& client) {
 		_client = &client;
 		_lastErrorCode = 0;
 		_fsDevice = nullptr;
+		_certCA = nullptr;
 	}
 	#else
 	SmtpMini::SmtpMini(WiFiClientSecure& client) {
 		_client = &client;
 		_lastErrorCode = 0;
 		_fsDevice = nullptr;
+		_certCA = nullptr;
 	}
 #endif
 
@@ -22,9 +27,10 @@ bool SmtpMini::begin(const char* email, const char* appPassword, fs::FS* fileSys
   return true;
 }
 
-void SmtpMini::setSmtpServer(const char* host, uint16_t port) {
+void SmtpMini::setSmtpServer(const char* host, uint16_t port, const char* certCA) {
   _host = host;
   _port = port;
+	_certCA = certCA;
 }
 
 int SmtpMini::getLastError() const {
@@ -233,32 +239,36 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	
 	#ifdef SMTP_MINI_DEBUG
 		#ifdef SMTP_USE_STARTTLS
-			Serial.printf("\n--- Connessione STARTTLS (Porta 587) a %s ---\n", _host);
+			Serial.printf("\n--- Connessione STARTTLS (Porta %d) a %s %s---\n", _port, _host, (_certCA)? "(certCA)": "");
 			#else
-			Serial.printf("\n--- Connessione SSL/TLS (Porta 465) a %s ---\n", _host);
+			Serial.printf("\n--- Connessione SSL/TLS (Porta %d) a %s %s---\n", _port, _host, (_certCA)? "(certCA)": "");
 		#endif
 	#endif
 	
-	_client->setInsecure(); // Ignora i controlli della CA per i test
 	
 	#ifdef SMTP_USE_STARTTLS
 		// Buffer TLS: regolabili in base alla RAM disponibile.
 		_client->setBufferSizes(4096, 1024);
 		_client->setDebugLevel(1);
-		
-		// IMPORTANTE:
 		// il wrapper deve iniziare in modalità TCP non cifrata.
 		_client->setClient(&basic_client, false);
+		
 	#endif
 	
+	if(_certCA != nullptr){
+		_client->setCACert(_certCA); // Usa il certificato dell'utente
+		//Serial.println(_certCA);
+		} else {
+		_client->setInsecure();
+	}
 	
-	// Connessione TCP (se PlainStart è false, esegue anche l'handshake SSL in automatico)
+	
 	if (!_client->connect(_host, _port)) {
 		_lastErrorCode = -2;  
-		Serial.println(F("NON CONNESSO!!!!!!"));
+		Serial.println(F("FAIL connesion!"));
 		return false;
 	}
-	Serial.println(F("CONNESSO"));
+	Serial.println(F("Connected"));
 	
 	// 2. Saluto del server
   if (readSMTPResponse() != 220)
@@ -270,92 +280,104 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	
 	// fino qui tutto in chiaro ...dopo TLS
 	
-	
 	#ifdef SMTP_USE_STARTTLS
-	 // 4. Richiesta STARTTLS
-  if (!smtpCommand("STARTTLS", 220))
+		// 4. Richiesta STARTTLS
+		if (!smtpCommand("STARTTLS", 220))
     return false;
-
-  // 5. Upgrade TLS sullo stesso socket TCP
-	#ifdef SMTP_MINI_DEBUG
-  Serial.println(F("Avvio handshake STARTTLS..."));
-#endif
-
-  if (!_client->connectSSL()) {
-    char err[160] = { 0 };
-    int errCode = _client->getLastSSLError(err, sizeof(err));
-
-    Serial.printf("Handshake TLS fallito: %d, %s\n", errCode, err);
+		
+		// 5. Upgrade TLS sullo stesso socket TCP
+		#ifdef SMTP_MINI_DEBUG
+			Serial.println(F("Avvio handshake STARTTLS..."));
+		#endif
+		
+		if (!_client->connectSSL()) {
+			char sslError[256] = {0};
+			int errore = _client->getLastSSLError(sslError, sizeof(sslError));
+			_lastErrorCode = errore;
+			
+			Serial.printf("SSL error: %d\n", errore);
+			if (strlen(sslError) > 0) {
+        Serial.printf("SSL detail: %s\n", sslError);
+			}
+			return false;
+		}
+		
+		#ifdef SMTP_MINI_DEBUG
+			Serial.println(F("TLS attivo"));
+		#endif
+		
+		// 6. Nuovo EHLO dentro TLS
+		if (!smtpCommand("EHLO esp32.local", 250))
     return false;
-  }
-#ifdef SMTP_MINI_DEBUG
-  Serial.println(F("TLS attivo"));
-#endif
-  // 6. Nuovo EHLO dentro TLS
-  if (!smtpCommand("EHLO esp32.local", 250))
-    return false;
-#endif
+	#endif
 	
 	// =========================================================================
 	// DA QUI IN POI IL CODICE È IDENTICO PER ENTRAMBI I PROTOCOLLI
 	// =========================================================================
 	
 	// Autenticazione (AUTH LOGIN)
-	 // 7. Autenticazione LOGIN
+	
   if (!smtpCommand("AUTH LOGIN", 334)) return false;
-		
+	
 	codifica64((const uint8_t*)_email, strlen(_email), false);
-	 if (readSMTPResponse() != 334)return false;
+	if (readSMTPResponse() != 334)return false;
 	
 	codifica64((const uint8_t*)_appPassword, strlen(_appPassword), false);
 	if (readSMTPResponse() != 235)return false;
 	
 	#ifdef SMTP_MINI_DEBUG
-	Serial.println(F("Autenticazione riuscita"));
+		Serial.println(F("Autenticazione riuscita"));
 	#endif
 	
 	_client->printf("MAIL FROM:<%s>\r\n", _email);
 	if (readSMTPResponse() != 250)return false;
+	
+	#ifdef MULTIRCPT
 		
-	
-#ifdef MULTIRCPT
-char emailBuffer[64]; // Buffer temporaneo
-size_t indlistaEmail = 0;
-int pemailbuffer = 0;
-	
-while (true) {
-	char carattereCorrente = to[indlistaEmail];
-	if(carattereCorrente == ' '){
-		indlistaEmail++;
-		continue;
-	}	
-	if(pemailbuffer < 64 -1) {
-		if(carattereCorrente == '\0' || carattereCorrente == ';' ) {
-			emailBuffer[pemailbuffer] = '\0';
-			if(pemailbuffer > 10)_client->printf("RCPT TO:<%s>\r\n", emailBuffer);
-			if (readSMTPResponse() != 250)return false;
-        //if(pemailbuffer > 10)Serial.println(emailBuffer);
-		} else {
-			emailBuffer[pemailbuffer++] = carattereCorrente;
+		char emailBuffer[64]; // Buffer temporaneo
+		size_t indlistaEmail = 0;
+		int pemailbuffer = 0;
+		
+		while (true) {
+			
+			char carattereCorrente = to[indlistaEmail];
+			if(carattereCorrente == ' '){
+				indlistaEmail++;
+				continue;
+			}	
+			
+			if(pemailbuffer < 64 -1) {
+				
+				if(carattereCorrente == '\0' || carattereCorrente == ';' ) {
+					emailBuffer[pemailbuffer] = '\0';
+					if(pemailbuffer > 10)_client->printf("RCPT TO:<%s>\r\n", emailBuffer);
+					if (readSMTPResponse() != 250)return false;
+					//if(pemailbuffer > 10)Serial.println(emailBuffer);
+					} else {
+					emailBuffer[pemailbuffer++] = carattereCorrente;
+				}
+			} 
+			if(carattereCorrente == '\0') break;
+			if(carattereCorrente == ';') pemailbuffer = 0;
+			indlistaEmail++;
 		}
-	} 
-	if(carattereCorrente == '\0') break;
-	if(carattereCorrente == ';') pemailbuffer = 0;
-	indlistaEmail++;
-}
-#else
-	_client->printf("RCPT TO:<%s>\r\n", to);
-	if (readSMTPResponse() != 250)return false;
-#endif
+		
+		#else
+		_client->printf("RCPT TO:<%s>\r\n", to);
+		if (readSMTPResponse() != 250)return false;
+	#endif
+	
 	
 	if (!smtpCommand("DATA", 354)) return false;
+	
 	
 	const char* boundary = "----ESP32Boundary12345";
 	_client->printf("From: <%s>\r\n", _email);
 	_client->printf("To: <%s>\r\n", to);
 	_client->printf("Subject: %s\r\n", subject);
 	#ifdef ENABLE_TIMEINFO
-	if(_timeSMTP != nullptr){_client->printf("Date: %s\r\n", _timeSMTP); }
+		//Serial.println(_timeSMTP);
+		if(_timeSMTP != nullptr){_client->printf("Date: %s\r\n", _timeSMTP); }
 		//Wed, 14 Oct 2026 08:14:13 +0200
 		//strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S %z", &timeinfo);
 	#endif
