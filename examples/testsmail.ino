@@ -142,7 +142,6 @@ void testmail1() {
     SmtpMini mailer(smtp_client);
 #else
     WiFiClientSecure smtp_client;
-    smtp_client.setInsecure();
     SmtpMini mailer(smtp_client);
 #endif
 
@@ -193,7 +192,6 @@ void testmail2() {
   SmtpMini mailer(smtp_client);
 #else
   WiFiClientSecure smtp_client;
-  smtp_client.setInsecure();
   SmtpMini mailer(smtp_client);
 #endif
 
