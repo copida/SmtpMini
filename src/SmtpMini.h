@@ -83,8 +83,11 @@
 		bool readSMTPLine(char* line, size_t size,uint32_t timeoutMs = 10000);
 		bool smtpCommand(const char* command, int expected);
 		void codifica64(const char* buffer, size_t lunghezza = 0);
-		void codifica64(const uint8_t* data, size_t len, bool mime);
-		void codificaFILE(const char* percorso);
+		//void codifica64(const uint8_t* data, size_t len, bool mime);
+		//void codificaFILE(const char* percorso);
+		bool codifica64(const uint8_t* data, size_t len, bool mime);
+		bool codificaFILE(const char* percorso);
+		bool inviaBody(const char* body);
 		
 	};
 	
