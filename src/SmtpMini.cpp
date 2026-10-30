@@ -1,7 +1,7 @@
 #include "SmtpMini.h"
 
 static constexpr char b64_table[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
+static constexpr char boundary[] = "ESP32Block";
 
 #ifdef SMTP_USE_STARTTLS
 	SmtpMini::SmtpMini(ESP_SSLClient& client) {
@@ -38,34 +38,85 @@ int SmtpMini::getLastError() const {
 }
 
 // Legge e codifica
-void SmtpMini::codifica64(const uint8_t* data, size_t len, bool mime) {
-  char riga[80];
-  size_t c = 0;
+bool SmtpMini::codifica64(const uint8_t* data, size_t len, bool mime) {
+	if (_client == nullptr || (!data && len > 0)) {
+		return false;
+	}
 	
-  for (size_t i = 0; i < len; i += 3) {
-    size_t rem = len - i;
-    uint8_t b1 = data[i];
-    uint8_t b2 = (rem > 1) ? data[i + 1] : 0;
-    uint8_t b3 = (rem > 2) ? data[i + 2] : 0;
+	char riga[80];
+	size_t c = 0;
+	
+	// Invio completo del buffer, gestendo eventuali scritture parziali.
+	auto invia = [&](const uint8_t* buf, size_t n) -> bool {
+		size_t pos = 0;
 		
-    riga[c++] = b64_table[b1 >> 2];
-    riga[c++] = b64_table[((b1 & 0x03) << 4) | (b2 >> 4)];
-    riga[c++] = (rem > 1) ? b64_table[((b2 & 0x0F) << 2) | (b3 >> 6)] : '=';
-    riga[c++] = (rem > 2) ? b64_table[b3 & 0x3F] : '=';
+		while (pos < n) {
+			size_t scritto = _client->write(buf + pos, n - pos);
+			
+			if (scritto == 0) {
+				return false;
+			}
+			
+			pos += scritto;
+		}
 		
-    if (mime && c >= 76) {   // riga piena: la invio
-      riga[c++] = '\r';
-      riga[c++] = '\n';
-      _client->write((const uint8_t*)riga, c);
-      c = 0;
+		return true;
+	};
+	
+	for (size_t i = 0; i < len; i += 3) {
+		size_t rem = len - i;
+		
+		uint8_t b1 = data[i];
+		uint8_t b2 = (rem > 1) ? data[i + 1] : 0;
+		uint8_t b3 = (rem > 2) ? data[i + 2] : 0;
+		
+		riga[c++] = b64_table[b1 >> 2];
+		riga[c++] = b64_table[((b1 & 0x03) << 4) | (b2 >> 4)];
+		riga[c++] = (rem > 1)
+		? b64_table[((b2 & 0x0F) << 2) | (b3 >> 6)]
+		: '=';
+		riga[c++] = (rem > 2)
+		? b64_table[b3 & 0x3F]
+		: '=';
+		
+		// Buffer pieno: 76 caratteri Base64.
+		if (c == 76) {
+			if (mime) {
+				riga[c++] = '\r';
+				riga[c++] = '\n';
+			}
+			
+			if (!invia((const uint8_t*)riga, c)) {
+				return false;
+			}
+			
+			c = 0;
 		}
 	}
 	
-  if (c > 0) {               // resto finale
-    riga[c++] = '\r';
-    riga[c++] = '\n';
-    _client->write((const uint8_t*)riga, c);
+	// Invio degli eventuali caratteri residui.
+	if (c > 0) {
+		if (mime) {
+			riga[c++] = '\r';
+			riga[c++] = '\n';
+		}
+		
+		if (!invia((const uint8_t*)riga, c)) {
+			return false;
+		}
 	}
+	
+	// In modalità non MIME, la riga termina qui,
+	// anche quando la lunghezza è un multiplo di 76.
+	if (!mime && len > 0) {
+		static const uint8_t CRLF[] = {'\r', '\n'};
+		
+		if (!invia(CRLF, sizeof(CRLF))) {
+			return false;
+		}
+	}
+	
+	return true;
 }
 
 void SmtpMini::codifica64(const char* buffer, size_t lunghezza) {
@@ -86,74 +137,109 @@ static const char* nomeBase(const char* percorso) {
   const char* p = strrchr(percorso, '/');
   return p ? p + 1 : percorso;
 }
-
-void SmtpMini::codificaFILE(const char* percorso) {
-  if (_fsDevice == nullptr) {
+bool SmtpMini::codificaFILE(const char* percorso) {
+	if (_fsDevice == nullptr || _client == nullptr || percorso == nullptr) {
 		#ifdef SMTP_MINI_DEBUG
-			Serial.println(F("Errore: Nessun File System specificato nel metodo begin()."));
+			Serial.println(F("Errore: File System, client o percorso non valido."));
 		#endif
-    return;
+		return false;
 	}
 	
-  fs::File f = _fsDevice->open(percorso, FILE_READ);
-  if (!f) {
+	fs::File f = _fsDevice->open(percorso, FILE_READ);
+	
+	if (!f) {
 		#ifdef SMTP_MINI_DEBUG
 			Serial.printf("Errore: Impossibile aprire il file: %s\n", percorso);
 		#endif
-    return;
+		return false;
 	}
 	
-  const size_t totale = f.size();
-  if (totale == 0) {
-    f.close();
-    return;
+	const size_t totale = f.size();
+	
+	// Un file vuoto è valido: non ci sono dati da codificare.
+	if (totale == 0) {
+		f.close();
+		return true;
 	}
 	
-  uint8_t accumulo[57];
-  uint8_t lettura[16];
-  size_t accLen = 0;
-  size_t byteLetti = 0;
-  int ultimaPercentuale = -1;
+	uint8_t accumulo[57];
+	uint8_t lettura[16];
+	
+	size_t accLen = 0;
+	size_t byteLetti = 0;
+	int ultimaPercentuale = -1;
+	bool errore = false;
 	
 	#ifdef SMTP_MINI_DEBUG
 		Serial.print(F("Elaborazione e invio file da SD... "));
 	#endif
 	
-  while (f.available()) {
-    size_t n = f.read(lettura, sizeof(lettura));
-    if (n == 0) break;
+	while (byteLetti < totale) {
+		size_t daLeggere = totale - byteLetti;
 		
-    for (size_t i = 0; i < n; i++) {
-      accumulo[accLen++] = lettura[i];
-      byteLetti++;
+		if (daLeggere > sizeof(lettura)) {
+			daLeggere = sizeof(lettura);
+		}
+		
+		size_t n = f.read(lettura, daLeggere);
+		
+		// Lettura interrotta prima della fine del file.
+		if (n == 0) {
+			errore = true;
+			break;
+		}
+		
+		for (size_t i = 0; i < n; i++) {
+			accumulo[accLen++] = lettura[i];
+			byteLetti++;
 			
-      if (accLen == sizeof(accumulo)) {
-        codifica64((const uint8_t*)accumulo, accLen, true);
-        accLen = 0;
+			if (accLen == sizeof(accumulo)) {
+				if (!codifica64(accumulo, accLen, true)) {
+					errore = true;
+					break;
+				}
+				
+				accLen = 0;
 			}
 			
 			#ifdef SMTP_MINI_DEBUG
-				int percentuale = (int)((byteLetti * 100ULL) / totale);
-				if (percentuale != ultimaPercentuale && percentuale % 5 == 0) {
+				int percentuale =
+				(int)((byteLetti * 100ULL) / totale);
+				
+				if (percentuale != ultimaPercentuale &&
+					percentuale % 5 == 0) {
 					ultimaPercentuale = percentuale;
-					Serial.print(F("#"));
+					Serial.print('#');
 				}
 			#endif
 		}
+		
+		if (errore) {
+			break;
+		}
 	}
 	
-  if (accLen > 0) {
-    codifica64((const uint8_t*)accumulo, accLen, true);
+	// Codifica i byte residui solo se la lettura è riuscita.
+	if (!errore && accLen > 0) {
+		if (!codifica64(accumulo, accLen, true)) {
+			errore = true;
+		}
 	}
 	
-  f.close();
-  _client->print("\r\n");
+	f.close();
 	
+	// Nessun CRLF aggiuntivo: codifica64 termina già
+	// ogni riga MIME con CRLF.
 	#ifdef SMTP_MINI_DEBUG
-		Serial.println(F("] 100% - Completato!"));
+		if (errore) {
+			Serial.println(F(" ERRORE durante lettura o trasmissione!"));
+			} else {
+			Serial.println(F(" 100% - Completato!"));
+		}
 	#endif
+	
+	return !errore && byteLetti == totale;
 }
-
 
 // Legge una riga SMTP fino a LF, con timeout complessivo.
 bool SmtpMini::readSMTPLine(char* line, size_t size,uint32_t timeoutMs) {
@@ -181,7 +267,7 @@ bool SmtpMini::readSMTPLine(char* line, size_t size,uint32_t timeoutMs) {
       return false;
 		}
 		
-    delay(1);
+    delay(5);
 	}
 	
   line[n] = '\0';
@@ -215,6 +301,7 @@ int SmtpMini::readSMTPResponse() {
 	return _lastErrorCode;
 }
 
+
 bool SmtpMini::smtpCommand(const char* command, int expected) {
 	#ifdef SMTP_MINI_DEBUG
 		Serial.print(F("C: "));
@@ -230,7 +317,72 @@ bool SmtpMini::smtpCommand(const char* command, int expected) {
     Serial.printf("ERRORE SMTP: atteso %d, ricevuto %d\n", expected, code);
     return false;
 	}
+	//Serial.println(code);
   return true;
+}
+
+bool SmtpMini::inviaBody(const char* body) {
+	if (body == nullptr || _client == nullptr) return false;
+	
+	char bufferinterno[128];
+	size_t pbuf = 0;
+	bool inizioRiga = true;
+	
+	auto flush = [&]() -> bool {
+		size_t inviati = 0;
+		
+		while (inviati < pbuf) {
+			size_t n = _client->write(
+				(const uint8_t*)bufferinterno + inviati,
+				pbuf - inviati
+			);
+			
+			if (n == 0) return false;
+			inviati += n;
+		}
+		
+		pbuf = 0;
+		return true;
+	};
+	
+	for (size_t i = 0; body[i] != '\0'; i++) {
+		char c = body[i];
+		
+		if (pbuf > sizeof(bufferinterno) - 2) {
+			if (!flush()) return false;
+		}
+		
+		// Normalizza CR, LF e CRLF in CRLF.
+		if (c == '\r' || c == '\n') {
+			if (c == '\r' && body[i + 1] == '\n') i++;
+			
+			bufferinterno[pbuf++] = '\r';
+			bufferinterno[pbuf++] = '\n';
+			inizioRiga = true;
+			continue;
+		}
+		
+		// Dot-stuffing
+		if (inizioRiga && c == '.') {
+			bufferinterno[pbuf++] = '.';
+		}
+		
+		bufferinterno[pbuf++] = c;
+		inizioRiga = false;
+	}
+	
+	// Termina il body con CRLF, se necessario.
+	if (!inizioRiga) {
+		if (pbuf > sizeof(bufferinterno) - 2) {
+			if (!flush()) return false;
+		}
+		
+		bufferinterno[pbuf++] = '\r';
+		bufferinterno[pbuf++] = '\n';
+	}
+	
+	if (!flush()) return false;
+	return true;
 }
 
 
@@ -352,7 +504,6 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 					emailBuffer[pemailbuffer] = '\0';
 					if(pemailbuffer > 10)_client->printf("RCPT TO:<%s>\r\n", emailBuffer);
 					if (readSMTPResponse() != 250)return false;
-					//if(pemailbuffer > 10)Serial.println(emailBuffer);
 					} else {
 					emailBuffer[pemailbuffer++] = carattereCorrente;
 				}
@@ -367,11 +518,8 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 		if (readSMTPResponse() != 250)return false;
 	#endif
 	
-	
 	if (!smtpCommand("DATA", 354)) return false;
 	
-	
-	const char* boundary = "----ESP32Boundary12345";
 	_client->printf("From: <%s>\r\n", _email);
 	_client->printf("To: <%s>\r\n", to);
 	_client->printf("Subject: %s\r\n", subject);
@@ -382,16 +530,24 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 		//strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S %z", &timeinfo);
 	#endif
 	_client->print("MIME-Version: 1.0\r\n");
+	// 1 RIGA VUOTA
 	_client->printf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary);
 	
 	_client->printf("--%s\r\n", boundary);
+	// 2 RIGA VUOTA
 	if (isHtml) {
 		_client->print("Content-Type: text/html; charset=UTF-8\r\n\r\n");
 		} else {
 		_client->print("Content-Type: text/plain; charset=UTF-8\r\n\r\n");
 	}
-	_client->printf("%s\r\n\r\n", body);
 	
+	if (!inviaBody(body)) {
+		_lastErrorCode = -3;
+		return false;
+	}
+	// 3 RIGA VUOTA
+	_client->print("\r\n");
+		
 	// Ciclo dinamico degli allegati ****** ALLEGATI
 	if (attachments != nullptr && attachmentCount > 0) {
 		for (size_t i = 0; i < attachmentCount; i++) {
@@ -403,6 +559,7 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 			
 			_client->printf("Content-Type: application/octet-stream; name=\"%s\"\r\n", nomedamostrare);
 			_client->print("Content-Transfer-Encoding: base64\r\n");
+			//  RIGA VUOTA
 			_client->printf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", nomedamostrare);
 			
 			// Scelta automatica della sorgente dati in base ai parametri
@@ -421,9 +578,7 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	}
 	//*************
 	_client->printf("--%s--\r\n", boundary);
-	_client->print(".\r\n");
-	if (readSMTPResponse() != 250) return false;
-	
+	if (!smtpCommand(".", 250)) return false;
 	smtpCommand("QUIT", 221);
 	_lastErrorCode = 0;   // invio riuscito
 	return true;
