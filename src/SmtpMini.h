@@ -1,12 +1,12 @@
 #ifndef SMTP_MINI_H
-#define SMTP_MINI_H
+	#define SMTP_MINI_H
 	
 	#include <Arduino.h>
 	
 	// --- DEBUG CONDIZIONALE ---
 	// Decommenta la riga sotto per vedere tutto il traffico SMTP sul monitor seriale.
 	// Commentala per ripulire la seriale e risparmiare memoria Flash nel progetto definitivo.
-	//#define SMTP_MINI_DEBUG
+	#define SMTP_MINI_DEBUG
 	
 	#define ENABLE_TIMEINFO
 	
@@ -14,7 +14,7 @@
 	
 	//#define MULTIRCPT
 	// es: "recipipient1@gmail.com;recipient2@....." ;
-		
+	
 	// Decommenta questa riga se usi la porta 587
 	// Commentala se usi la porta 465 (Gmail o altri SSL implicito)
 	//#define SMTP_USE_STARTTLS
@@ -30,14 +30,22 @@
 	
 	#include <FS.h>
 	
-		
-	// STRUTTURA ALLEGATI
-	struct SMTPAttachment {
+	/*	
+		// STRUTTURA ALLEGATI
+		struct SMTPAttachment {
     char nomeFile[64] = { "\0" };
     const void* bufferRAM = nullptr;   // Lasciare vuoto se il file è su SD
     size_t lunghezzaRAM = 0;						// Lasciare 0 se il file è su SD
+		};
+		*/
+	
+	struct SMTPAttachment {
+		// Modificato da array fisso a puntatore: risparmia fino a 60 byte di RAM per allegato
+		const char* nomeFile = nullptr;   
+		const void* bufferRAM = nullptr;   
+		size_t lunghezzaRAM = 0;           
 	};
-
+	
 	class SmtpMini {
 		public:
 		#ifdef SMTP_USE_STARTTLS
@@ -47,7 +55,6 @@
 		#endif
 		bool begin(const char* email, const char* appPassword, fs::FS* fileSystem = nullptr);
 		
-		//void setSmtpServer(const char* host, uint16_t port = 465);
 		void setSmtpServer(const char* host, uint16_t port, const char* certCA = nullptr);
 		
 		bool sendEmail(const char* to, const char* subject, const char* body, bool isHtml = false, SMTPAttachment* attachments = nullptr, size_t attachmentCount = 0);
@@ -83,8 +90,6 @@
 		bool readSMTPLine(char* line, size_t size,uint32_t timeoutMs = 10000);
 		bool smtpCommand(const char* command, int expected);
 		void codifica64(const char* buffer, size_t lunghezza = 0);
-		//void codifica64(const uint8_t* data, size_t len, bool mime);
-		//void codificaFILE(const char* percorso);
 		bool codifica64(const uint8_t* data, size_t len, bool mime);
 		bool codificaFILE(const char* percorso);
 		bool inviaBody(const char* body);
