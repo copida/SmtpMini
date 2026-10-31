@@ -146,7 +146,6 @@ bool SmtpMini::codificaFILE(const char* percorso) {
 	}
 	
 	fs::File f = _fsDevice->open(percorso, FILE_READ);
-	
 	if (!f) {
 		#ifdef SMTP_MINI_DEBUG
 			Serial.printf("Errore: Impossibile aprire il file: %s\n", percorso);
@@ -155,17 +154,13 @@ bool SmtpMini::codificaFILE(const char* percorso) {
 	}
 	
 	const size_t totale = f.size();
-	
-	// Un file vuoto è valido: non ci sono dati da codificare.
 	if (totale == 0) {
 		f.close();
 		return true;
 	}
 	
-	uint8_t accumulo[57];
-	uint8_t lettura[16];
-	
-	size_t accLen = 0;
+	// Leggo blocco di 57 byte
+	uint8_t accumulo[57]; 
 	size_t byteLetti = 0;
 	int ultimaPercentuale = -1;
 	bool errore = false;
@@ -176,60 +171,34 @@ bool SmtpMini::codificaFILE(const char* percorso) {
 	
 	while (byteLetti < totale) {
 		size_t daLeggere = totale - byteLetti;
-		
-		if (daLeggere > sizeof(lettura)) {
-			daLeggere = sizeof(lettura);
+		if (daLeggere > sizeof(accumulo)) {
+			daLeggere = sizeof(accumulo);
 		}
 		
-		size_t n = f.read(lettura, daLeggere);
-		
-		// Lettura interrotta prima della fine del file.
+		size_t n = f.read(accumulo, daLeggere);
 		if (n == 0) {
 			errore = true;
 			break;
 		}
 		
-		for (size_t i = 0; i < n; i++) {
-			accumulo[accLen++] = lettura[i];
-			byteLetti++;
-			
-			if (accLen == sizeof(accumulo)) {
-				if (!codifica64(accumulo, accLen, true)) {
-					errore = true;
-					break;
-				}
-				
-				accLen = 0;
-			}
-			
-			#ifdef SMTP_MINI_DEBUG
-				int percentuale =
-				(int)((byteLetti * 100ULL) / totale);
-				
-				if (percentuale != ultimaPercentuale &&
-					percentuale % 5 == 0) {
-					ultimaPercentuale = percentuale;
-					Serial.print('#');
-				}
-			#endif
-		}
+		byteLetti += n;
 		
-		if (errore) {
+		if (!codifica64(accumulo, n, true)) {
+			errore = true;
 			break;
 		}
-	}
-	
-	// Codifica i byte residui solo se la lettura è riuscita.
-	if (!errore && accLen > 0) {
-		if (!codifica64(accumulo, accLen, true)) {
-			errore = true;
-		}
+		
+		#ifdef SMTP_MINI_DEBUG
+			int percentuale = (int)((byteLetti * 100ULL) / totale);
+			if (percentuale != ultimaPercentuale && percentuale % 5 == 0) {
+				ultimaPercentuale = percentuale;
+				Serial.print('#');
+			}
+		#endif
 	}
 	
 	f.close();
 	
-	// Nessun CRLF aggiuntivo: codifica64 termina già
-	// ogni riga MIME con CRLF.
 	#ifdef SMTP_MINI_DEBUG
 		if (errore) {
 			Serial.println(F(" ERRORE durante lettura o trasmissione!"));
@@ -241,44 +210,49 @@ bool SmtpMini::codificaFILE(const char* percorso) {
 	return !errore && byteLetti == totale;
 }
 
-// Legge una riga SMTP fino a LF, con timeout complessivo.
-bool SmtpMini::readSMTPLine(char* line, size_t size,uint32_t timeoutMs) {
-  size_t n = 0;
-  uint32_t start = millis();
+bool SmtpMini::readSMTPLine(char* line, size_t size, uint32_t timeoutMs) {
+	size_t n = 0;
+	uint32_t start = millis();
 	
-  while ((uint32_t)(millis() - start) < timeoutMs) {
-    while (_client->available() > 0) {
-      int ch = _client->read();
-      if (ch < 0)
-			break;
-      if (ch == '\n') {
-        line[n] = '\0';
-				#ifdef SMTP_MINI_DEBUG
-					Serial.printf("S: %s\n", line);
-				#endif
-        return true;
+	while ((uint32_t)(millis() - start) < timeoutMs) {
+		int av = _client->available();
+		if (av > 0) {
+			// Leggiamo finché ci sono dati nel buffer di rete
+			while (av-- > 0) {
+				int ch = _client->read();
+				if (ch < 0) break;
+				
+				if (ch == '\n') {
+					line[n] = '\0';
+					#ifdef SMTP_MINI_DEBUG
+						Serial.printf("S: %s\n", line);
+					#endif
+					return true;
+				}
+				
+				if (ch != '\r' && n < size - 1) {
+					line[n++] = (char)ch;
+				}
 			}
-      if (ch != '\r' && n < size - 1)
-			line[n++] = (char)ch;
 		}
 		
-    if (!_client->connected()) {
-      Serial.println(F("Connessione SMTP chiusa"));
-      return false;
+		if (!_client->connected()) {
+			Serial.println(F("Connessione SMTP chiusa"));
+			return false;
 		}
 		
-    delay(5);
+		delay(1); 
 	}
 	
-  line[n] = '\0';
-  Serial.printf("TIMEOUT SMTP, riga parziale: [%s]\n", line);
-  return false;
+	line[n] = '\0';
+	Serial.printf("TIMEOUT SMTP, riga parziale: [%s]\n", line);
+	return false;
 }
 
 
 // Legge la risposta SMTP, anche multilinea.
 int SmtpMini::readSMTPResponse() {
-  char line[512];
+  char line[256];
 	_lastErrorCode = -1;
 	
   while (true) {
@@ -300,7 +274,6 @@ int SmtpMini::readSMTPResponse() {
 	
 	return _lastErrorCode;
 }
-
 
 bool SmtpMini::smtpCommand(const char* command, int expected) {
 	#ifdef SMTP_MINI_DEBUG
@@ -443,7 +416,7 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 		#endif
 		
 		if (!_client->connectSSL()) {
-			char sslError[256] = {0};
+			char sslError[128] = {0};
 			int errore = _client->getLastSSLError(sslError, sizeof(sslError));
 			_lastErrorCode = errore;
 			
@@ -484,56 +457,60 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	_client->printf("MAIL FROM:<%s>\r\n", _email);
 	if (readSMTPResponse() != 250)return false;
 	
+	
+	// --- GESTIONE DESTINATARI ---
 	#ifdef MULTIRCPT
-		
-		char emailBuffer[64]; // Buffer temporaneo
+		char emailBuffer[64]; 
 		size_t indlistaEmail = 0;
 		int pemailbuffer = 0;
 		
 		while (true) {
-			
 			char carattereCorrente = to[indlistaEmail];
-			if(carattereCorrente == ' '){
+			
+			if (carattereCorrente == ' ') {
 				indlistaEmail++;
 				continue;
-			}	
+			}    
 			
-			if(pemailbuffer < 64 -1) {
-				
-				if(carattereCorrente == '\0' || carattereCorrente == ';' ) {
+			if (carattereCorrente == '\0' || carattereCorrente == ';') {
+				if (pemailbuffer > 0) {
 					emailBuffer[pemailbuffer] = '\0';
-					if(pemailbuffer > 10)_client->printf("RCPT TO:<%s>\r\n", emailBuffer);
-					if (readSMTPResponse() != 250)return false;
-					} else {
-					emailBuffer[pemailbuffer++] = carattereCorrente;
+					// Rimosso il limite fisso > 10 (permette email corte ma sintatticamente valide)
+					_client->printf("RCPT TO:<%s>\r\n", emailBuffer);
+					if (readSMTPResponse() != 250) return false;
+					pemailbuffer = 0;
 				}
-			} 
-			if(carattereCorrente == '\0') break;
-			if(carattereCorrente == ';') pemailbuffer = 0;
+				if (carattereCorrente == '\0') break;
+				} else if (pemailbuffer < (int)sizeof(emailBuffer) - 1) {
+				emailBuffer[pemailbuffer++] = carattereCorrente;
+			}
 			indlistaEmail++;
 		}
-		
-		#else
+    #else
 		_client->printf("RCPT TO:<%s>\r\n", to);
-		if (readSMTPResponse() != 250)return false;
+		if (readSMTPResponse() != 250) return false;
 	#endif
 	
 	if (!smtpCommand("DATA", 354)) return false;
 	
-	_client->printf("From: <%s>\r\n", _email);
-	_client->printf("To: <%s>\r\n", to);
-	_client->printf("Subject: %s\r\n", subject);
+	//_client->printf("From: <%s>\r\n", _email);
+	//_client->printf("To: <%s>\r\n", to);
+	//_client->printf("Subject: %s\r\n", subject);
+	_client->printf("From: <%s>\r\nTo: <%s>\r\nSubject: %s\r\n", _email, to, subject);
+	
 	#ifdef ENABLE_TIMEINFO
 		//Serial.println(_timeSMTP);
 		if(_timeSMTP != nullptr){_client->printf("Date: %s\r\n", _timeSMTP); }
 		//Wed, 14 Oct 2026 08:14:13 +0200
 		//strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S %z", &timeinfo);
 	#endif
-	_client->print("MIME-Version: 1.0\r\n");
+	//_client->print("MIME-Version: 1.0\r\n");
+	//// 1 RIGA VUOTA
+	//_client->printf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary);	
+	//_client->printf("--%s\r\n", boundary);
 	// 1 RIGA VUOTA
-	_client->printf("Content-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n", boundary);
+	_client->printf("MIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"%s\"\r\n\r\n--%s\r\n", boundary, boundary);
 	
-	_client->printf("--%s\r\n", boundary);
 	// 2 RIGA VUOTA
 	if (isHtml) {
 		_client->print("Content-Type: text/html; charset=UTF-8\r\n\r\n");
@@ -547,20 +524,23 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 	}
 	// 3 RIGA VUOTA
 	_client->print("\r\n");
-		
+	
 	// Ciclo dinamico degli allegati ****** ALLEGATI
 	if (attachments != nullptr && attachmentCount > 0) {
 		for (size_t i = 0; i < attachmentCount; i++) {
 			SMTPAttachment corrente = attachments[i];
-			
 			const char* nomedamostrare = nomeBase(corrente.nomeFile);
 			
-			_client->printf("--%s\r\n", boundary);
-			
-			_client->printf("Content-Type: application/octet-stream; name=\"%s\"\r\n", nomedamostrare);
-			_client->print("Content-Transfer-Encoding: base64\r\n");
+			//_client->printf("--%s\r\n", boundary);
+			//_client->printf("Content-Type: application/octet-stream; name=\"%s\"\r\n", nomedamostrare);
+			//	_client->print("Content-Transfer-Encoding: base64\r\n");
 			//  RIGA VUOTA
-			_client->printf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", nomedamostrare);
+			//_client->printf("Content-Disposition: attachment; filename=\"%s\"\r\n\r\n", nomedamostrare);
+			
+			//  RIGA VUOTA
+			// Unificato l'invio dell'header dell'allegato in un'unica macro print
+			_client->printf("--%s\r\nContent-Type: application/octet-stream; name=\"%s\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"%s\"\r\n\r\n", 
+			boundary, nomedamostrare, nomedamostrare);
 			
 			// Scelta automatica della sorgente dati in base ai parametri
 			if (corrente.bufferRAM != nullptr && corrente.lunghezzaRAM > 0) {
