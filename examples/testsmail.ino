@@ -136,15 +136,6 @@ void testmail1() {
   // blocco temporaneo
   {
 
-#ifdef ENABLE_STARTTLS
-    WiFiClient basic_client;
-    ESP_SSLClient smtp_client;
-    SmtpMini mailer(smtp_client);
-#else
-    WiFiClientSecure smtp_client;
-    SmtpMini mailer(smtp_client);
-#endif
-
     mailer.begin(AUTHOR_EMAIL, AUTHOR_PASSWORD);
     //mailer.begin(AUTHOR_EMAIL, "xxxxxxxxxxxxxxx");  // prova ERRORE
     
@@ -161,9 +152,6 @@ void testmail1() {
       // L'invio è fallito, interroghiamo la libreria
       helpError(mailer.getLastError());
     }
-
-    smtp_client.flush();
-    smtp_client.stop();
   }  // end blocco temporaneo
 
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
@@ -186,15 +174,6 @@ void testmail2() {
   };
 
 
-#ifdef ENABLE_STARTTLS
-  WiFiClient basic_client;
-  ESP_SSLClient smtp_client;
-  SmtpMini mailer(smtp_client);
-#else
-  WiFiClientSecure smtp_client;
-  SmtpMini mailer(smtp_client);
-#endif
-
   mailer.begin(AUTHOR_EMAIL, AUTHOR_PASSWORD, &SD);
 
   Serial.println("Inizio invio email cumulativa...SD");
@@ -210,9 +189,7 @@ void testmail2() {
   } else {
     helpError(mailer.getLastError());
   }
-  smtp_client.flush();
-  smtp_client.stop();
-
+ 
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
 }
 //=============================
