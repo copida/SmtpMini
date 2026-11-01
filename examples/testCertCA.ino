@@ -62,6 +62,25 @@ size_t len_battute = sizeof(battute);
 void handleSerialCommand(const String& line);
 void listDir();
 
+// Funzione per sincronizzare l'orario e formattare la data RFC 822
+bool ottieniDataRFC822(char* buffer, size_t sizeBuffer) {
+    configTzTime(timeZone, ntpServer);
+    
+    struct tm timeinfo;
+    uint32_t start = millis();
+    while (!getLocalTime(&timeinfo) && (millis() - start) < 10000) {
+        delay(100);
+    }
+
+    if (!getLocalTime(&timeinfo)) {
+        return false;
+    }
+
+    // Formato RFC 822: "Sat, 31 Oct 2026 17:19:00 +0100"
+    strftime(buffer, sizeBuffer, "%a, %d %b %Y %H:%M:%S %z", &timeinfo);
+    return true;
+}
+
 void setup() {
   Serial.begin(115200);
   WiFi.begin(ssid, password);
@@ -74,36 +93,17 @@ void setup() {
   delay(1000);
 
 
-  configTime(0, 0, "pool.ntp.org", "time.nist.gov");
-  setenv("TZ", "CET-1CEST,M3.5.0,M10.5.0/3", 1);
-  tzset();
-  Serial.println("Sincronizzazione orario tramite NTP...");
-
-  time_t now = time(nullptr);
-  struct tm timeinfo;
-
-  if (!getLocalTime(&timeinfo)) {
-    Serial.println("Errore: impossibile ottenere l'ora locale.");
-    return;
-  }
-
-  setlocale(LC_TIME, "C");
-
-  char buffertime[80];
-
-  // %a = Giorno abbreviato (es. Wed)
-  // %d = Giorno del mese (es. 28)
-  // %b = Mese abbreviato (es. Oct)
-  // %Y = Anno a 4 cifre (es. 2026)
-  // %H:%M:%S = Orario completo
-  // %z = Differenza fuso orario numerica (es. +0100 o +0200)
-  strftime(buffertime, sizeof(buffertime), "Date: %a, %d %b %Y %H:%M:%S %z\r\n", &timeinfo);
-
-  // (opzionale)
-  //setlocale(LC_TIME, "");
-  Serial.println(buffertime);
-
-
+  // 1. Sincronizzazione NTP
+    char dataBuffer[64];
+    if (ottieniDataRFC822(dataBuffer, sizeof(dataBuffer))) {
+        Serial.printf("Orario sincronizzato: %s\n", dataBuffer);
+        #ifdef ENABLE_TIMEINFO
+            mailer.setSMTPtime(dataBuffer);
+        #endif
+    } else {
+        Serial.println("Sincronizzazione NTP fallita (invio senza header Date)");
+    }
+  
   if (!SD.begin(SD_CS_PIN)) {
     Serial.println("[ERRORE] Inizializzazione SD fallita!");
     return;
