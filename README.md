@@ -256,7 +256,9 @@ bool sendEmail(const char* to, const char* subject, const char* body,
 | `attachments` | Array of `SMTPAttachment` (or `nullptr`) |
 | `attachmentCount` | Number of elements in the array |
 
-Returns `true` if the server accepted the message (`250` after `DATA`).
+Returns `true` if the server accepted the message (`250` after `DATA`). If an attachment could not be fully encoded, the message is still sent and `getLastError()` returns `-4`.
+
+**Input filtering:** CR, LF and `"` are removed from `to`, the email address, `subject` and attachment names, and values are truncated (address 64, subject 80, attachment name 50 characters) to prevent header injection. The body is not filtered for these characters.
 
 ### `getLastError()`
 
@@ -317,7 +319,10 @@ b.lunghezzaRAM = strlen(text);
 | `0` | No error recorded / successful send |
 | `-1` | Timeout or connection closed while waiting for a server reply |
 | `-2` | TCP/TLS connection to the server failed |
+| `-3` | Body transmission failed |
+| `-4` | Message sent, but an attachment was incomplete or skipped (no name, read/send error) |
 | *other* | SMTP code received instead of the expected one (for example `535`, `554`) |
+
 
 Common SMTP codes:
 
