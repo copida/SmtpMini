@@ -71,8 +71,11 @@ Copy the library folder into your Arduino `libraries/` directory, or add it as a
 
 ```cpp
 #include <WiFi.h>
-#include <SmtpMini.h>
 #include <SD.h>
+#include <SmtpMini.h>
+
+//Single library instance: TCP/TLS clients are managed internally
+SmtpMini mailer;
 
 void setup() {
   Serial.begin(115200);
@@ -88,11 +91,10 @@ void setup() {
     Serial.println("SD init failed");
   }
 
-  WiFiClientSecure smtp_client;
-  SmtpMini mailer(smtp_client);
 
   mailer.begin("sender@gmail.com", "your_app_password", &SD);
-  mailer.setSmtpServer("smtp.gmail.com", 465);
+//smtp.gmail.com and port 465 are the defaults... optional
+  //mailer.setSmtpServer("smtp.gmail.com", 465);
 
   SMTPAttachment attachments[1] = {
     { "/report.csv" }
@@ -106,9 +108,6 @@ void setup() {
     attachments,
     1
   );
-
-  smtp_client.flush();
-  smtp_client.stop();
 
   if (ok) {
     Serial.println("Email sent successfully");
@@ -127,6 +126,7 @@ void loop() {}
 ```cpp
 #include <WiFi.h>
 #include <SmtpMini.h>
+SmtpMini mailer;
 
 void setup() {
   Serial.begin(115200);
@@ -136,11 +136,8 @@ void setup() {
     delay(500);
   }
 
- WiFiClient basic_client;
- ESP_SSLClient smtp_client;
- SmtpMini mailer(smtp_client);
-
   mailer.begin("sender@gmail.com", "your_app_password");
+//Set port 587 for automatic STARTTLS communication
   mailer.setSmtpServer("smtp.gmail.com", 587);
 
   bool ok = mailer.sendEmail(
@@ -149,9 +146,6 @@ void setup() {
     "Hello from STARTTLS!",
     false
   );
-
-  smtp_client.flush();
-  smtp_client.stop();
 
   if (ok) Serial.println("Email sent successfully");
   else    Serial.printf("SMTP error: %d\n", mailer.getLastError());
@@ -278,7 +272,7 @@ Returns the last error code. On success, it returns `0`.
 
 ```cpp
 struct SMTPAttachment {
-  char nomeFile[64] = { "\0" };       // name (RAM) or path (filesystem)
+  const char* nomeFile = nullptr;       // name (RAM) or path (filesystem)
   const void* bufferRAM = nullptr;    // leave nullptr for filesystem files
   size_t lunghezzaRAM = 0;            // leave 0 for filesystem files
 };
@@ -344,8 +338,6 @@ Common SMTP codes:
 
 ## Client lifecycle
 
-- The library does not close the client automatically.
-- The sketch owns the client and decides when to stop it.
 - `QUIT` is sent as a best-effort SMTP close command.
 - A message is considered successfully sent once the server accepts it after `DATA` with `250`.
 
