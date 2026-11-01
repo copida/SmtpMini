@@ -2,6 +2,8 @@
 #include <time.h>
 #include <SD.h>
 #include <SmtpMini.h>
+//Single library instance: TCP/TLS clients are managed internally
+SmtpMini mailer;
 
 // questo #define serve solo per selzionare in questo sketch la parte SSL o STARTTLS
 // fatto per evitare due esempi separati
@@ -174,13 +176,8 @@ void testmail1() {
   {
 
 #ifdef ENABLE_STARTTLS
-    WiFiClient basic_client;
-    ESP_SSLClient smtp_client;
-    SmtpMini mailer(smtp_client);
     mailer.setSmtpServer("smtp.gmail.com", 587, root_ca_R4);
 #else
-    WiFiClientSecure smtp_client;
-    SmtpMini mailer(smtp_client);
     mailer.setSmtpServer("smtp.gmail.com", 465, root_ca_R4);
 #endif
       
@@ -200,9 +197,6 @@ void testmail1() {
       // L'invio è fallito, interroghiamo la libreria
       helpError(mailer.getLastError());
     }
-
-    smtp_client.flush();
-    smtp_client.stop();
   }  // end blocco temporaneo
 
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
@@ -226,13 +220,8 @@ void testmail2() {
 
 
 #ifdef ENABLE_STARTTLS
-    WiFiClient basic_client;
-    ESP_SSLClient smtp_client;
-    SmtpMini mailer(smtp_client);
     mailer.setSmtpServer("smtp.gmail.com", 587, root_ca_R4);
 #else
-    WiFiClientSecure smtp_client;
-    SmtpMini mailer(smtp_client);
     mailer.setSmtpServer("smtp.gmail.com", 465, root_ca_R4);
 #endif
 
@@ -251,9 +240,7 @@ void testmail2() {
   } else {
     helpError(mailer.getLastError());
   }
-  smtp_client.flush();
-  smtp_client.stop();
-
+ 
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
 }
 //=============================
