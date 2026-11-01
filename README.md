@@ -54,7 +54,6 @@ The goal of the library is to stay **small, simple, and practical** for Arduino 
 > - Pass a CA certificate to `setSmtpServer()` to verify the SMTP server certificate; without one, the connection is encrypted but the server certificate is not verified.
 > - The library can optionally include the `Date:` header to improve compatibility with stricter SMTP servers.
 > - The destination email address is sent as a single `RCPT TO` unless `MULTIRCPT` is enabled.
-> - The library does **not** close the client automatically; the sketch decides when to stop the connection.
 > - `QUIT` is sent as a best-effort SMTP close command, but a successful message is already considered delivered once the server accepts it after `DATA`.
 
 ---
@@ -283,8 +282,7 @@ struct SMTPAttachment {
 ### From the filesystem
 
 ```cpp
-SMTPAttachment a;
-strcpy(a.nomeFile, "/logs/data.csv");     // requires a filesystem in begin()
+SMTPAttachment a("/logs/data.csv");       // requires a filesystem in begin()
 ```
 
 ### From RAM
@@ -292,10 +290,7 @@ strcpy(a.nomeFile, "/logs/data.csv");     // requires a filesystem in begin()
 ```cpp
 const char text[] = "Generated in RAM";
 
-SMTPAttachment b;
-strcpy(b.nomeFile, "log.txt");            // name shown in the email
-b.bufferRAM    = text;
-b.lunghezzaRAM = strlen(text);
+SMTPAttachment b("log.txt", text, strlen(text));   // name shown in the email
 ```
 
 ### Rules
