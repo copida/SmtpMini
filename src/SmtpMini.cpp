@@ -115,6 +115,15 @@ static const char* nomeBase(const char* percorso) {
     return p ? p + 1 : percorso;
 }
 
+// Copia scartando CR, LF e virgolette (anti-iniezione negli header/comandi SMTP)
+static void pulisci(char* dst, size_t size, const char* src) {
+    size_t n = 0;
+    for (; src && *src && n < size - 1; src++) {
+        if (*src != '\r' && *src != '\n' && *src != '"') dst[n++] = *src;
+    }
+    dst[n] = '\0';
+}
+
 bool SmtpMini::codificaFILE(const char* percorso) {
     if (_fsDevice == nullptr || percorso == nullptr) return false;
 
@@ -320,6 +329,11 @@ bool SmtpMini::inviaBody(const char* body) {
 bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, bool isHtml, SMTPAttachment* attachments, size_t attachmentCount) {
     _lastErrorCode = 0;
 
+    char emailP[65], toP[65], subjectP[81];
+    pulisci(emailP, sizeof(emailP), _email);
+    pulisci(toP, sizeof(toP), to);
+    pulisci(subjectP, sizeof(subjectP), subject);
+
     #ifdef SMTP_MINI_DEBUG
         #ifdef SMTP_USE_STARTTLS
             Serial.printf("\n--- Connessione STARTTLS (Porta %d) a %s %s---\n", _port, _host, (_certCA) ? "(certCA)" : "");
@@ -397,7 +411,7 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
     #endif
 
     char headerBuf[256];
-    snprintf(headerBuf, sizeof(headerBuf), "MAIL FROM:<%s>\r\n", _email);
+    snprintf(headerBuf, sizeof(headerBuf), "MAIL FROM:<%s>\r\n", emailP);
     _sslClient.print(headerBuf);
     if (readSMTPResponse() != 250) { _sslClient.stop(); return false; }
 
@@ -410,7 +424,7 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
         while (true) {
             char carattereCorrente = to[indlistaEmail];
 
-            if (carattereCorrente == ' ') {
+            if (carattereCorrente == ' ' || carattereCorrente == '\r' || carattereCorrente == '\n') {
                 indlistaEmail++;
                 continue;
             }
@@ -430,7 +444,7 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
             indlistaEmail++;
         }
     #else
-        snprintf(headerBuf, sizeof(headerBuf), "RCPT TO:<%s>\r\n", to);
+        snprintf(headerBuf, sizeof(headerBuf), "RCPT TO:<%s>\r\n", toP);
         _sslClient.print(headerBuf);
         if (readSMTPResponse() != 250) { _sslClient.stop(); return false; }
     #endif
@@ -439,13 +453,13 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 
     // Headers principali
     int len = snprintf(headerBuf, sizeof(headerBuf),
-        "From: <%s>\r\nTo: <%s>\r\nSubject: %s\r\n",
-        _email, to, subject);
+        "From: <%.64s>\r\nTo: <%.64s>\r\nSubject: %.80s\r\n",
+        emailP, toP, subjectP);
     _sslClient.write((const uint8_t*)headerBuf, len);
 
     #ifdef ENABLE_TIMEINFO
         if (_timeSMTP != nullptr) {
-            len = snprintf(headerBuf, sizeof(headerBuf), "Date: %s\r\n", _timeSMTP);
+            len = snprintf(headerBuf, sizeof(headerBuf), "Date: %.40s\r\n", _timeSMTP);
             _sslClient.write((const uint8_t*)headerBuf, len);
         }
     #endif
@@ -469,14 +483,18 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 
     _sslClient.print("\r\n");
 
-    // Ciclo allegati
+    // Ciclo allegati: un errore non blocca l'invio, viene riportato da getLastError() (-4)
+    bool allegatoOk = true;
     if (attachments != nullptr && attachmentCount > 0) {
         for (size_t i = 0; i < attachmentCount; i++) {
             SMTPAttachment corrente = attachments[i];
-            const char* nomedamostrare = nomeBase(corrente.nomeFile);
+            if (corrente.nomeFile == nullptr) { allegatoOk = false; continue; }
+
+            char nomedamostrare[51];
+            pulisci(nomedamostrare, sizeof(nomedamostrare), nomeBase(corrente.nomeFile));
 
             len = snprintf(headerBuf, sizeof(headerBuf),
-                "--%s\r\nContent-Type: application/octet-stream; name=\"%s\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"%s\"\r\n\r\n",
+                "--%s\r\nContent-Type: application/octet-stream; name=\"%.50s\"\r\nContent-Transfer-Encoding: base64\r\nContent-Disposition: attachment; filename=\"%.50s\"\r\n\r\n",
                 boundary, nomedamostrare, nomedamostrare);
             _sslClient.write((const uint8_t*)headerBuf, len);
 
@@ -484,12 +502,12 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
                 #ifdef SMTP_MINI_DEBUG
                     Serial.printf("Invio allegato da RAM: %s\n", corrente.nomeFile);
                 #endif
-                codifica64((const uint8_t*)corrente.bufferRAM, corrente.lunghezzaRAM, true);
+                if (!codifica64((const uint8_t*)corrente.bufferRAM, corrente.lunghezzaRAM, true)) allegatoOk = false;
             } else if (corrente.nomeFile != nullptr && strlen(corrente.nomeFile) > 0) {
                 #ifdef SMTP_MINI_DEBUG
                     Serial.printf("Invio allegato da FS: %s\n", corrente.nomeFile);
                 #endif
-                codificaFILE(corrente.nomeFile);
+                if (!codificaFILE(corrente.nomeFile)) allegatoOk = false;
             }
         }
     }
@@ -501,6 +519,6 @@ bool SmtpMini::sendEmail(const char* to, const char* subject, const char* body, 
 
     smtpCommand("QUIT", 221);
     _sslClient.stop(); // Chiude e libera il socket alla fine dell'invio
-    _lastErrorCode = 0;
+    _lastErrorCode = allegatoOk ? 0 : -4;
     return true;
 }
