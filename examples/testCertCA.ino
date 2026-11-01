@@ -21,6 +21,9 @@ SmtpMini mailer;
 const char* ssid = "XXXXXXXXXXXXXXXXXXX";
 const char* password = "XXXXXXXXXXXXXX";
 
+// Server NTP e fuso orario (es. Italia CET/CEST: "CET-1CEST,M3.5.0,M10.5.0/3")
+const char* ntpServer = "pool.ntp.org";
+const char* timeZone  = "CET-1CEST,M3.5.0,M10.5.0/3";
 //repository ufficiale Google Trust Services
 //GTS Root R4 nella sezione Root CAs.(Valido fino al 2036)
 // Specifico per i servizi Google, incluso smtp.google.com / smtp.gmail.com
