@@ -2,6 +2,8 @@
 #include <time.h>
 #include <SD.h>
 #include <SmtpMini.h>
+//Single library instance: TCP/TLS clients are managed internally
+SmtpMini mailer;
 
 // questo #define serve solo per selzionare in questo sketch la parte SSL o STARTTLS
 // fatto per evitare due esempi separati
