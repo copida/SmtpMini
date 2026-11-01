@@ -283,8 +283,7 @@ struct SMTPAttachment {
 ### From the filesystem
 
 ```cpp
-SMTPAttachment a;
-strcpy(a.nomeFile, "/logs/data.csv");     // requires a filesystem in begin()
+SMTPAttachment a("/logs/data.csv");       // requires a filesystem in begin()
 ```
 
 ### From RAM
@@ -292,10 +291,7 @@ strcpy(a.nomeFile, "/logs/data.csv");     // requires a filesystem in begin()
 ```cpp
 const char text[] = "Generated in RAM";
 
-SMTPAttachment b;
-strcpy(b.nomeFile, "log.txt");            // name shown in the email
-b.bufferRAM    = text;
-b.lunghezzaRAM = strlen(text);
+SMTPAttachment b("log.txt", text, strlen(text));   // name shown in the email
 ```
 
 ### Rules
