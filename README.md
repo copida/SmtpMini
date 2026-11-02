@@ -338,12 +338,14 @@ Common SMTP codes:
 > **Note:** the code is stored whenever the reply does not match the expected one, including server greeting, authentication, `MAIL FROM`, `RCPT TO`, `DATA`, `STARTTLS`, and the final message acceptance after `DATA`. Enable `SMTP_MINI_DEBUG` to inspect the server dialogue.
 
 Common BearSSL codes:
+
 | Code | BearSSL |Meaning |
-| `0` | BR_ERR_OK | No error (unexpected if the 'if' condition failed; check the timeout).|
-| `26` | BR_ERR_BAD_VERSION | The server requires a TLS version that is not supported (e.g., TLS 1.3).|
-| `32` | BR_ERR_BAD_CERT_SIGN | The certificate signature is invalid, or the CA chain is incorrect.|
-| `60` | BR_ERR_X509_EXPIRED | The server certificate has expired (or the ESP's clock is not synchronized via NTP|
-| `62` | BR_ERR_X509_NOT_TRUSTED | The root CA certificate is not trusted or is missing from your code.|
+| :--- | :--- | :--- |
+| `0` | BR_ERR_OK | No error (unexpected if the 'if' condition failed; check the timeout) |
+| `26` | BR_ERR_BAD_VERSION | The server requires a TLS version that is not supported (e.g., TLS 1.3) |
+| `32` | BR_ERR_BAD_CERT_SIGN | The certificate signature is invalid, or the CA chain is incorrect |
+| `60` | BR_ERR_X509_EXPIRED | The server certificate has expired (or the ESP's clock is not synchronized via NTP |
+| `62` | BR_ERR_X509_NOT_TRUSTED | The root CA certificate is not trusted or is missing from your code |
 
 ---
 
