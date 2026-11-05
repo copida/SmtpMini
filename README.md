@@ -228,8 +228,9 @@ Example:
 configTime(3600, 3600, "pool.ntp.org");
 
 struct tm t;
+static char dateBuf[40];
 if (getLocalTime(&t)) {
-  static char dateBuf[40];
+  //static char dateBuf[40]; ..no!
   strftime(dateBuf, sizeof(dateBuf), "%a, %d %b %Y %H:%M:%S %z", &t);
   mailer.setSMTPtime(dateBuf);
 }
