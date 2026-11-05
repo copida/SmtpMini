@@ -292,6 +292,11 @@ SMTPAttachment a("/logs/data.csv");       // requires a filesystem in begin()
 const char text[] = "Generated in RAM";
 
 SMTPAttachment b("log.txt", text, strlen(text));   // name shown in the email
+
+String strtext = "stringa in formato testo\n";
+strtext += "seconda riga della stringa";
+
+SMTPAttachment c("testo.txt", strtext.c_str(), , strtext.length()); 
 ```
 
 ### Rules
