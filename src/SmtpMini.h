@@ -5,7 +5,7 @@
 	
 	// --- DEBUG CONDIZIONALE ---
 	// Decommenta la riga sotto per vedere tutto il traffico SMTP sul monitor seriale.
-	#define SMTP_MINI_DEBUG
+	//#define SMTP_MINI_DEBUG
 	
 	//#define ENABLE_TIMEINFO
 	#define SMTP_SERVER "smtp.gmail.com"
@@ -14,7 +14,7 @@
 	
 	// Decommenta questa riga se usi la porta 587 (STARTTLS)
 	// Commentala se usi la porta 465 (Gmail o altri con SSL implicito)
-	#define SMTP_USE_STARTTLS
+	//#define SMTP_USE_STARTTLS
 	
 	#ifndef SMTP_USE_STARTTLS
     #include <WiFiClientSecure.h>
