@@ -146,14 +146,11 @@ void testmail1() {
                                   "Test Leggero",
                                   BODY_TXT);
 
-    Serial.println("Spedita!");
-
     if (esito) {
-      Serial.println("Email inviata con successo!");
-    } else {
-      // L'invio è fallito, interroghiamo la libreria
-      helpError(mailer.getLastError());
-    }
+	    Serial.println("Email inviata con successo!");
+  	} 
+	helpError(mailer.getLastError());
+	  
   }  // end blocco temporaneo
 
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
@@ -193,16 +190,18 @@ void testmail2() {
 
   if (esito) {
     Serial.println("Email inviata con successo!");
-  } else {
-    helpError(mailer.getLastError());
   }
- 
+	helpError(mailer.getLastError());
+	
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
 }
 //=============================
 void helpError(int err) {
-  if (err == -1) Serial.println("Causa: Il server ha smesso di rispondere (Timeout).");
+  Serial.printf("Cod. risultato: %d\n", err);
+  if (err == 0) Serial.println("Email inviata con successo!");
+  else if (err == -1) Serial.println("Causa: Il server ha smesso di rispondere (Timeout).");
   else if (err == -2) Serial.println("Causa: Impossibile connettersi al server (Rete o SSL fallito).");
+  else if (err == -4) Serial.println("Message sent, but an attachment was incomplete or skipped (no name, read/send error)");
   else if (err == 535) Serial.println("Causa: Autenticazione fallita (Email o password app errata).");
   else if (err == 550) Serial.println("Causa: Destinatario non valido o inesistente.");
   else Serial.printf("Causa: Errore risposto dal server SMTP. Codice: %d\n", err);
