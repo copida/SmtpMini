@@ -165,13 +165,18 @@ void testmail2() {
   Serial.printf("RAM Libera totale finale: %d bytes\n", ESP.getFreeHeap());
   delay(1000);
 
+	String fstring = "TIMESTAMP,SENS_1,SENS_2,STATO\n";
+	fstring += "2026-10-31 10:00:00,23.5,60%,OK\n";
+	fstring += "2026-10-31 10:05:00,23.7,59%,OK\n";
+	fstring += "2026-10-31 10:10:00,24.1,58%,WARNING";
+
 
   //SMTPAttachment singoloAllegato[1] = { {"/report.csv"} };
 	// esempio di allegati misti
-	//prime 2 files e 3 buufer in RAM 
+	//prime 1 files 2 stringa e 3 buufer in RAM 
   SMTPAttachment listaAllegati[3] = {
     { "/file1.csv" },
-    { "/test_sd.txt" },
+    { "stringa.txt", fstring.c_str(), fstring.length() },
     { "BATTUTE.txt", battute, len_battute }  // buffer in memoria
   };
 
