@@ -1,0 +1,10 @@
+# SmtpMini - Elenco Parole Chiave per Evidenziazione Sintassi
+
+# Classi e Strutture (Colorate in Arancione)
+SmtpMini	KEYWORD1
+SMTPAttachment	KEYWORD1
+
+# Metodi e Funzioni Pubbliche (Colorate in Azzurro/Marrone)
+begin	KEYWORD2
+sendEmail	KEYWORD2
+getLastError	KEYWORD2
