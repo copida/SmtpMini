@@ -9,9 +9,7 @@
 	
 	//#define ENABLE_TIMEINFO
 	#define SMTP_SERVER "smtp.gmail.com"
-	
-	//#define MULTIRCPT
-	
+		
 	// Decommenta questa riga se usi la porta 587 (STARTTLS)
 	// Commentala se usi la porta 465 (Gmail o altri con SSL implicito)
 	//#define SMTP_USE_STARTTLS
@@ -29,17 +27,9 @@
 	
 	// STRUTTURA ALLEGATI
 	struct SMTPAttachment {
-    const char* nomeFile = nullptr;   
+    char* nomeFile = nullptr;   
     const void* bufferRAM = nullptr;   
     size_t lunghezzaRAM = 0;           
-		
-    // Costruttore per file da FileSystem
-    SMTPAttachment(const char* file) 
-		: nomeFile(file), bufferRAM(nullptr), lunghezzaRAM(0) {}
-		
-    // Costruttore per buffer RAM / PROGMEM
-    SMTPAttachment(const char* nome, const void* ram, size_t len) 
-		: nomeFile(nome), bufferRAM(ram), lunghezzaRAM(len) {}
 	};
 	
 	class SmtpMini {
