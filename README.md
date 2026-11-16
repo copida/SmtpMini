@@ -397,7 +397,6 @@ TLS encrypts the connection. The library verifies the SMTP server certificate on
 
 ## Limitations
 
-- Authentication: `AUTH LOGIN` only
 - Single body part (text **or** HTML)
 - ESP32 only
 
