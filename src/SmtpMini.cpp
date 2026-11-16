@@ -238,7 +238,7 @@ bool SmtpMini::readSMTPLine(char* line, size_t size, uint32_t timeoutMs) {
 }
 
 int SmtpMini::readSMTPResponse() {
-	char line[514];
+char line[514];
 	_lastErrorCode = -1;
 	
 	while (true) {
@@ -247,6 +247,19 @@ int SmtpMini::readSMTPResponse() {
 		
 		// Verifica che la riga inizi con 3 cifre
 		if (isdigit(line[0]) && isdigit(line[1]) && isdigit(line[2])) {
+			//autoplain
+			if (strncmp(line, "250", 3) == 0){
+				const char* authPtr = strstr(line + 4, "AUTH");
+				if (authPtr != nullptr && (authPtr[4] == ' ' || authPtr[4] == '=')) {
+					if (strstr(authPtr, "PLAIN") != nullptr) {
+						_supportsPlain = true;
+					#ifdef SMTP_MINI_DEBUG
+						Serial.println("Supported AUTH PLAIN");
+					#endif
+					}
+				}
+			}
+			//end autoplain
 			if (line[3] == ' ') {
 				line[3] = '\0';
 				_lastErrorCode = atoi(line);
@@ -330,7 +343,8 @@ bool SmtpMini::inviaBody(const char* body) {
 }
 
 bool SmtpMini::sendEmail(const char* mailboxes, const char* subject, const char* body, bool isHtml, SMTPAttachment* attachments, size_t attachmentCount) {
-	
+
+	_supportsPlain = false;
 	_lastErrorCode = 0;
 	char emailP[65], subjectP[81];
 	// char toP[65] = {'\0'};
@@ -406,14 +420,44 @@ bool SmtpMini::sendEmail(const char* mailboxes, const char* subject, const char*
 		if (!smtpCommand("EHLO esp32.local", 250)) { _sslClient.stop(); return false; }
 	#endif
 	
-	// Autenticazione AUTH LOGIN
-	if (!smtpCommand("AUTH LOGIN", 334)) { _sslClient.stop(); return false; }
-	
-	codifica64((const uint8_t*)_email, strlen(_email), false);
-	if (readSMTPResponse() != 334) { _sslClient.stop(); return false; }
-	
-	codifica64((const uint8_t*)_appPassword, strlen(_appPassword), false);
-	if (readSMTPResponse() != 235) { _sslClient.stop(); return false; }
+	if(_supportsPlain) {
+		// Autenticazione AUTH PLAIN
+		size_t lenEmail = strlen(_email);
+    	size_t lenPass  = strlen(_appPassword);
+    	uint8_t plainBuf[160];
+		
+    if (lenEmail + lenPass + 2 > sizeof(plainBuf)) {
+			_lastErrorCode = -20; // Credenziali troppo lunghe per il buffer
+			_sslClient.stop();
+			return false;
+		}
+		
+    size_t pos = 0;
+    plainBuf[pos++] = '\0';
+    memcpy(plainBuf + pos, _email, lenEmail);
+    pos += lenEmail;
+    plainBuf[pos++] = '\0';
+    memcpy(plainBuf + pos, _appPassword, lenPass);
+    pos += lenPass;
+		
+    if (!smtpCommand("AUTH PLAIN", 334)) { _sslClient.stop(); return false; }
+		
+    if (!codifica64(plainBuf, pos, false)) { _sslClient.stop(); return false; }
+		
+    if (readSMTPResponse() != 235) { _sslClient.stop(); return false; }
+		// end AUTH PLAIN
+		
+		} else {
+		// Autenticazione AUTH LOGIN
+		if (!smtpCommand("AUTH LOGIN", 334)) { _sslClient.stop(); return false; }
+		
+		codifica64((const uint8_t*)_email, strlen(_email), false);
+		if (readSMTPResponse() != 334) { _sslClient.stop(); return false; }
+		
+		codifica64((const uint8_t*)_appPassword, strlen(_appPassword), false);
+		if (readSMTPResponse() != 235) { _sslClient.stop(); return false; }
+		// end AUTH LOGIN
+	}
 	
 	#ifdef SMTP_MINI_DEBUG
 		Serial.println(F("Autenticazione riuscita"));
@@ -490,7 +534,7 @@ bool SmtpMini::sendEmail(const char* mailboxes, const char* subject, const char*
 	int len = snprintf(headerBuf, sizeof(headerBuf),
 		"From: %.64s\r\nTo: %.64s\r\nSubject: %.80s\r\n",
 	emailP, toP, subjectP);
-	Serial.println(headerBuf);
+	//Serial.println(headerBuf);
 	
 	if (!streamWriteAll(_sslClient, (const uint8_t*)headerBuf, len)) {
 		_lastErrorCode = -10;
