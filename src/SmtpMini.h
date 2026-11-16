@@ -53,7 +53,7 @@
     const char* _email = nullptr;
     const char* _appPassword = nullptr;
     const char* _certCA = nullptr;
-    
+    bool _supportsPlain = false;
 		
     // Gestione nativa e diretta dei client
     #ifdef SMTP_USE_STARTTLS
